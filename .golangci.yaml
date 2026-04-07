@@ -1,0 +1,35 @@
+version: "2"
+
+run:
+  timeout: 5m
+  build-tags: []
+  modules-download-mode: readonly
+  allow-parallel-runners: false
+
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - unused
+    - ineffassign
+    - gosec
+    - bodyclose
+    - noctx
+    - gocyclo
+    #- goconst
+    - gocritic
+    #- revive
+    #- godot
+    #- godox
+    - prealloc
+    #- wastedassign
+    - errorlint
+    - nilerr
+    - wrapcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
