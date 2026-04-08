@@ -13,3 +13,6 @@ run:
 		exit 1; \
 	fi
 	go run cmd/hexlet-go-crawler/main.go $(URL)	
+
+test:
+	go test -count=1 ./... -v
