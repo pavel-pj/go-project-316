@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Integration Tests
+    name: tests
     runs-on: ubuntu-latest
     
     steps:
@@ -26,7 +26,7 @@ jobs:
         go mod verify
         
     - name: Run tests 
-      run: make test
+      run: go test -count=1 ./...  
 
  
  
