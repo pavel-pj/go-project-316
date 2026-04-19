@@ -75,11 +75,13 @@ func main() {
 				context.Background(),
 				crawler.Options{
 					args[0],
+					3,
 					&http.Client{},
 				})
 			if err != nil {
 				return fmt.Errorf("%w", err)
 			}
+			fmt.Println("Результат")
 			fmt.Println(string(res))
 			return nil
 		},
