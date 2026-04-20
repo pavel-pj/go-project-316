@@ -21,9 +21,17 @@ type Options struct {
 	HTTPClient *http.Client
 }
 
-type Result struct {
+type Page struct {
+	URL         string `json:"url"`
+	Depth       int    `json:"depth"`
+	HttpStatus  int    `json:"http_status"`
+	Status      string `json:"status"`
+	BrokenLinks []Link `json:"broken_links"`
+}
+
+type Link struct {
 	URL        string  `json:"url"`
-	StatusCode *string `json:"status_code,omitempty"`
+	StatusCode *int    `json:"status_code,omitempty"`
 	Error      *string `json:"error,omitempty"`
 }
 
@@ -62,29 +70,23 @@ func getRandomIP() string {
 		rand.Intn(255))
 }
 
-// Генерация случайной задержки от 3 до 10 секунд (как в рабочем примере)
-func getRandomDelay() time.Duration {
-	delay := rand.Intn(8) + 3 // 3-10 секунд
-	return time.Duration(delay) * time.Second
-}
-
 // Генерация случайной задержки для воркеров (миллисекунды)
 func getRandomWorkerDelay() time.Duration {
 	// От 1 до 25 секунд как в оригинале, но теперь в диапазоне 3-10 секунд
-	//delay := rand.Intn(8000) + 3000 // 3-10 секунд в миллисекундах
-	delay := rand.Intn(1) + 1 // 3-10 секунд в миллисекундах
+	delay := rand.Intn(2000) + 3000 // 3-10 секунд в миллисекундах
+	//delay := rand.Intn(1) + 1 // 3-10 секунд в миллисекундах
 	return time.Duration(delay) * time.Millisecond
 }
 
 func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	jobs := make(chan Job, 200)
-	results := make(chan Result, 200)
+	results := make(chan Link, 200)
 
 	var wg sync.WaitGroup
 	var jobWg sync.WaitGroup
 
 	// Запускаем воркеров (можно увеличить количество)
-	workersCount := 10 // Измените на нужное количество воркеров
+	workersCount := 5 // Измените на нужное количество воркеров
 	for i := 0; i < workersCount; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -113,23 +115,37 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	}()
 
 	// Собираем результаты
-	var data []Result
+	var brokenLinks []Link
 	for result := range results {
-		data = append(data, result)
+		if result.Error != nil {
+			brokenLinks = append(brokenLinks, result)
+			continue
+		}
+
+		// Проверяем статус код
+		if result.StatusCode != nil {
+			statusCode := *result.StatusCode
+			// Добавляем только если статус >= 400 (ошибка клиента/сервера)
+			// Или если статус < 200 (информационные ответы)
+			if statusCode >= 400 {
+				brokenLinks = append(brokenLinks, result)
+			}
+		}
 	}
 
-	fmt.Printf("Закрыли workres\n")
-	fmt.Println(data)
+	//fmt.Printf("Закрыли workres\n")
+	//fmt.Println(data)
 
-	fmt.Printf("Собрано результатов: %d\n", len(data))
-	return json.Marshal(data)
+	//fmt.Printf("Собрано результатов: %d\n", len(data))
+	//return json.Marshal(brokenLinks)
+	return json.MarshalIndent(brokenLinks, "", "  ")
 }
 
 func worker(
 	id int,
 	ctx context.Context,
 	jobs chan Job,
-	results chan<- Result,
+	results chan<- Link,
 	jobWg *sync.WaitGroup,
 	opts Options,
 ) {
@@ -153,7 +169,7 @@ func worker(
 					// Отправляем результат с ошибкой
 					errMsg := errResp.Error()
 					select {
-					case results <- Result{
+					case results <- Link{
 						URL:   job.URL,
 						Error: &errMsg,
 					}:
@@ -169,7 +185,7 @@ func worker(
 					fmt.Printf("Worker %d: resp is nil for %s\n", id, job.URL)
 					errMsg := "response is nil"
 					select {
-					case results <- Result{
+					case results <- Link{
 						URL:   job.URL,
 						Error: &errMsg,
 					}:
@@ -215,9 +231,9 @@ func worker(
 				//fmt.Printf("Worker %d: добавил %d новых задач\n", id, newJobsCount)
 
 				select {
-				case results <- Result{
+				case results <- Link{
 					URL:        job.URL,
-					StatusCode: &resp.Status,
+					StatusCode: &resp.StatusCode,
 				}:
 					//fmt.Printf("Worker %d: отправил результат для %s\n", id, job.URL)
 				case <-ctx.Done():
