@@ -31,11 +31,12 @@ type Page struct {
 }
 
 type Link struct {
-	URL          string  `json:"url"`
-	StatusCode   *int    `json:"status_code,omitempty"`
-	Error        *string `json:"error,omitempty"`
-	ParentURL    *string `json:"parent_url,omitempty"`
-	ParentStatus *int    `json:"parent_http_status,omitempty"`
+	URL              string  `json:"url"`
+	StatusCode       *int    `json:"status_code,omitempty"`
+	Error            *string `json:"error,omitempty"`
+	ParentURL        *string `json:"parent_url,omitempty"`
+	ParentStatusCode *int    `json:"parent_http_status,omitempty"`
+	ParentStatus     *string `json:"parent_status,omitempty"`
 }
 
 var (
@@ -44,9 +45,10 @@ var (
 )
 
 type Job struct {
-	URL          string
-	ParentURL    string
-	ParentStatus int
+	URL              string
+	ParentURL        string
+	ParentStatusCode int
+	ParentStatus     string
 }
 
 // Расширенный список User-Agent как в рабочем примере
@@ -110,9 +112,9 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	// Мониторинг завершения - закрываем jobs когда все задачи выполнены
 	go func() {
 		jobWg.Wait()
-		fmt.Println("Все задачи выполнены, закрываем jobs")
+		//fmt.Println("Все задачи выполнены, закрываем jobs")
 		close(jobs)
-		fmt.Println("ЗАКРЫЛИ jobs")
+		//fmt.Println("ЗАКРЫЛИ jobs")
 	}()
 
 	// Закрываем results после того, как все воркеры завершились
@@ -122,45 +124,11 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		close(results)
 	}()
 
-	// Собираем результаты
-	var brokenLinks []Link
-
-	for result := range results {
-		if result.Error != nil {
-			brokenLinks = append(brokenLinks, result)
-			continue
-		}
-
-		// Проверяем статус код
-		if result.StatusCode != nil {
-			statusCode := *result.StatusCode
-			// Добавляем только если статус >= 400 (ошибка клиента/сервера)
-			// Или если статус < 200 (информационные ответы)
-			if statusCode >= 400 {
-				brokenLinks = append(brokenLinks, result)
-			}
-		}
-	}
-
 	/*
-		var pages []Page
+		// Собираем результаты
+		var brokenLinks []Link
+
 		for result := range results {
-
-			// если нет такой страницы в Pages - добавляем
-			isPageExists := false
-			for _, page := range pages {
-				if page.URL == *result.ParentURL {
-					isPageExists = true
-				}
-			}
-
-			if !isPageExists {
-				pages = append(pages, Page{
-					URL:   *result.ParentURL,
-					Depth: 1,
-				})
-			}
-
 			if result.Error != nil {
 				brokenLinks = append(brokenLinks, result)
 				continue
@@ -177,13 +145,60 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			}
 		}
 	*/
+	var pagesMap = make(map[string]*Page)
+
+	for result := range results {
+		// Добавляем только битые ссылки
+		if result.StatusCode != nil && *result.StatusCode < 400 {
+			continue
+		}
+
+		var link Link
+		if result.Error != nil {
+			link = Link{
+				URL:   result.URL,
+				Error: result.Error,
+			}
+			fmt.Printf("Новая ссылка : parentURL:%s, URL:%s, error:%s\n", *result.ParentURL, result.URL, *result.Error)
+		} else {
+			link = Link{
+				URL:        result.URL,
+				StatusCode: result.StatusCode,
+			}
+			fmt.Printf("Новая ссылка : parentURL:%s, URL:%s, statusCode:%d\n", *result.ParentURL, result.URL, *result.StatusCode)
+		}
+
+		// Проверяем, есть ли уже страница в map
+		if page, exists := pagesMap[*result.ParentURL]; exists {
+			// Страница существует - добавляем ссылку
+			fmt.Printf("СОВПАЛО, добавляем ссылку к странице: %s\n", page.URL)
+			page.BrokenLinks = append(page.BrokenLinks, link)
+		} else {
+			// Создаем новую страницу
+			fmt.Printf("СОЗДАЕМ НОВУЮ page, ParentURL:%s\n", *result.ParentURL)
+			pagesMap[*result.ParentURL] = &Page{
+				URL:          *result.ParentURL,
+				Depth:        1,
+				HttpStatus:   *result.ParentStatusCode,
+				Status:       *result.ParentStatus,
+				BrokenLinks:  []Link{link},
+				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
+			}
+		}
+	}
+
+	// Конвертируем map в слайс
+	var pages []Page
+	for _, page := range pagesMap {
+		pages = append(pages, *page)
+	}
 
 	//fmt.Printf("Закрыли workres\n")
 	//fmt.Println(data)
 
 	//fmt.Printf("Собрано результатов: %d\n", len(data))
 	//return json.Marshal(brokenLinks)
-	return json.MarshalIndent(brokenLinks, "", "  ")
+	return json.MarshalIndent(pages, "", "  ")
 }
 
 func worker(
@@ -208,17 +223,18 @@ func worker(
 		func() {
 			select {
 			case <-time.After(delay):
-				html, resp, errResp := parseHtml(ctx, job.URL, opts, rng)
+				html, resp, respStatus, errResp := parseHtml(ctx, job.URL, opts, rng)
 				if errResp != nil {
-					fmt.Printf("Worker %d: ошибка при запросе %s: %v\n", id, job.URL, errResp)
+					//fmt.Printf("Worker %d: ошибка при запросе %s: %v\n", id, job.URL, errResp)
 					// Отправляем результат с ошибкой
 					errMsg := errResp.Error()
 					select {
 					case results <- Link{
-						URL:          job.URL,
-						Error:        &errMsg,
-						ParentURL:    &job.ParentURL,
-						ParentStatus: &job.ParentStatus,
+						URL:              job.URL,
+						Error:            &errMsg,
+						ParentURL:        &job.ParentURL,
+						ParentStatusCode: &job.ParentStatusCode,
+						ParentStatus:     &job.ParentStatus,
 					}:
 					case <-ctx.Done():
 					}
@@ -233,10 +249,11 @@ func worker(
 					errMsg := "response is nil"
 					select {
 					case results <- Link{
-						URL:          job.URL,
-						Error:        &errMsg,
-						ParentURL:    &job.ParentURL,
-						ParentStatus: &resp.StatusCode,
+						URL:              job.URL,
+						Error:            &errMsg,
+						ParentURL:        &job.ParentURL,
+						ParentStatusCode: &resp.StatusCode,
+						ParentStatus:     &resp.Status,
 					}:
 					case <-ctx.Done():
 					}
@@ -245,7 +262,7 @@ func worker(
 
 				}
 
-				fmt.Printf("Worker %d: ОТВЕТ %s: %s\n", id, job.URL, resp.Status)
+				//fmt.Printf("Worker %d: ОТВЕТ %s: %s\n", id, job.URL, resp.Status)
 
 				links := getLinksFromHtml(html, job.URL, opts)
 				//fmt.Printf("Worker %d: нашел %d ссылок на %s\n", id, len(links), job.URL)
@@ -268,9 +285,10 @@ func worker(
 							jobWg.Add(1)
 							select {
 							case jobs <- Job{
-								URL:          validatedLink,
-								ParentURL:    job.URL,
-								ParentStatus: resp.StatusCode,
+								URL:              validatedLink,
+								ParentURL:        job.URL,
+								ParentStatusCode: resp.StatusCode,
+								ParentStatus:     respStatus,
 							}:
 							case <-ctx.Done():
 								jobWg.Done()
@@ -285,10 +303,11 @@ func worker(
 
 				select {
 				case results <- Link{
-					URL:          job.URL,
-					StatusCode:   &resp.StatusCode,
-					ParentURL:    &job.ParentURL,
-					ParentStatus: &job.ParentStatus,
+					URL:              job.URL,
+					StatusCode:       &resp.StatusCode,
+					ParentURL:        &job.ParentURL,
+					ParentStatusCode: &job.ParentStatusCode,
+					ParentStatus:     &job.ParentStatus,
 				}:
 					//fmt.Printf("Worker %d: отправил результат для %s\n", id, job.URL)
 				case <-ctx.Done():
@@ -316,10 +335,10 @@ func isNewLink(link string) bool {
 	return !ok
 }
 
-func parseHtml(ctx context.Context, link string, opts Options, rng *rand.Rand) (string, *http.Response, error) {
+func parseHtml(ctx context.Context, link string, opts Options, rng *rand.Rand) (string, *http.Response, string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", link, nil)
 	if err != nil {
-		return "", nil, fmt.Errorf("cant prepare request to url:%s, %w", link, err)
+		return "", nil, "", fmt.Errorf("cant prepare request to url:%s, %w", link, err)
 	}
 
 	// Устанавливаем случайный User-Agent
@@ -354,17 +373,23 @@ func parseHtml(ctx context.Context, link string, opts Options, rng *rand.Rand) (
 
 	resp, err := opts.HTTPClient.Do(req)
 	if err != nil {
-		return "", nil, fmt.Errorf("cant handle request to url:%s, %w", link, err)
+		return "", nil, "", fmt.Errorf("cant handle request to url:%s, %w", link, err)
 	}
 
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", nil, fmt.Errorf("cant read response body from url:%s, %w", link, err)
+		return "", nil, "", fmt.Errorf("cant read response body from url:%s, %w", link, err)
 	}
 
-	return string(body), resp, nil
+	parentStatus := ""
+	parts := strings.Split(resp.Status, " ")
+	if len(parts) == 2 {
+		parentStatus = parts[1] // Берем "OK"
+	}
+
+	return string(body), resp, parentStatus, nil
 }
 
 func getLinksFromHtml(htmlBody string, baseURL string, opts Options) []string {
