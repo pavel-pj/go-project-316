@@ -21,6 +21,13 @@ type Options struct {
 	HTTPClient *http.Client
 }
 
+type Root struct {
+	RootURL     string `json:"root_url"`
+	Depth       int    `json:"depth"`
+	GeneratedAt string `json:"generated_at"`
+	Pages       []Page `json:"pages"`
+}
+
 type Page struct {
 	URL          string `json:"url"`
 	Depth        int    `json:"depth"`
@@ -124,27 +131,6 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		close(results)
 	}()
 
-	/*
-		// Собираем результаты
-		var brokenLinks []Link
-
-		for result := range results {
-			if result.Error != nil {
-				brokenLinks = append(brokenLinks, result)
-				continue
-			}
-
-			// Проверяем статус код
-			if result.StatusCode != nil {
-				statusCode := *result.StatusCode
-				// Добавляем только если статус >= 400 (ошибка клиента/сервера)
-				// Или если статус < 200 (информационные ответы)
-				if statusCode >= 400 {
-					brokenLinks = append(brokenLinks, result)
-				}
-			}
-		}
-	*/
 	var pagesMap = make(map[string]*Page)
 
 	for result := range results {
@@ -193,12 +179,19 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		pages = append(pages, *page)
 	}
 
+	result := Root{
+		RootURL:     opts.URL,
+		Depth:       1,
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		Pages:       pages,
+	}
+
 	//fmt.Printf("Закрыли workres\n")
 	//fmt.Println(data)
 
 	//fmt.Printf("Собрано результатов: %d\n", len(data))
 	//return json.Marshal(brokenLinks)
-	return json.MarshalIndent(pages, "", "  ")
+	return json.MarshalIndent(result, "", "  ")
 }
 
 func worker(
