@@ -29,21 +29,37 @@ type Root struct {
 }
 
 type Page struct {
-	URL          string `json:"url"`
-	Depth        int    `json:"depth"`
-	HttpStatus   int    `json:"http_status"`
-	Status       string `json:"status"`
-	BrokenLinks  []Link `json:"broken_links"`
-	DiscoveredAt string `json:"discovered_at"`
+	URL          string        `json:"url"`
+	Depth        int           `json:"depth"`
+	HttpStatus   int           `json:"http_status"`
+	Status       string        `json:"status"`
+	BrokenLinks  *[]BrokenLink `json:"broken_links,omitempty"`
+	Seo          Seo           `json:"seo"`
+	DiscoveredAt string        `json:"discovered_at"`
+}
+
+type BrokenLink struct {
+	URL        string  `json:"url"`
+	StatusCode *int    `json:"status_code,omitempty"`
+	Error      *string `json:"error,omitempty"`
 }
 
 type Link struct {
 	URL              string  `json:"url"`
 	StatusCode       *int    `json:"status_code,omitempty"`
 	Error            *string `json:"error,omitempty"`
-	ParentURL        *string `json:"parent_url,omitempty"`
-	ParentStatusCode *int    `json:"parent_http_status,omitempty"`
-	ParentStatus     *string `json:"parent_status,omitempty"`
+	ParentURL        string  `json:"parent_url,omitempty"`
+	ParentStatusCode int     `json:"parent_http_status,omitempty"`
+	ParentStatus     string  `json:"parent_status,omitempty"`
+	Seo              *Seo    `json:"seo,omitempty"`
+}
+
+type Seo struct {
+	HasTitle       bool   `json:"has_title"`
+	Title          string `json:"title,omitempty"`
+	HasDescription bool   `json:"has_description"`
+	Description    string `json:"description,omitempty"`
+	HasH1          bool   `json:"has_h1"`
 }
 
 var (
@@ -56,6 +72,7 @@ type Job struct {
 	ParentURL        string
 	ParentStatusCode int
 	ParentStatus     string
+	//ParentSeo        Seo
 }
 
 // Расширенный список User-Agent как в рабочем примере
@@ -132,43 +149,54 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	}()
 
 	var pagesMap = make(map[string]*Page)
+	var brokenLinks []Link
 
 	for result := range results {
-		// Добавляем только битые ссылки
-		if result.StatusCode != nil && *result.StatusCode < 400 {
-			continue
-		}
 
-		var link Link
+		// Формируем массив битых ссылок
 		if result.Error != nil {
-			link = Link{
-				URL:   result.URL,
-				Error: result.Error,
-			}
-			fmt.Printf("Новая ссылка : parentURL:%s, URL:%s, error:%s\n", *result.ParentURL, result.URL, *result.Error)
-		} else {
-			link = Link{
-				URL:        result.URL,
-				StatusCode: result.StatusCode,
-			}
-			fmt.Printf("Новая ссылка : parentURL:%s, URL:%s, statusCode:%d\n", *result.ParentURL, result.URL, *result.StatusCode)
+			brokenLinks = append(brokenLinks, result)
+		} else if result.StatusCode != nil && *result.StatusCode >= 400 {
+			brokenLinks = append(brokenLinks, result)
 		}
 
-		// Проверяем, есть ли уже страница в map
-		if page, exists := pagesMap[*result.ParentURL]; exists {
-			// Страница существует - добавляем ссылку
-			fmt.Printf("СОВПАЛО, добавляем ссылку к странице: %s\n", page.URL)
-			page.BrokenLinks = append(page.BrokenLinks, link)
-		} else {
-			// Создаем новую страницу
-			fmt.Printf("СОЗДАЕМ НОВУЮ page, ParentURL:%s\n", *result.ParentURL)
-			pagesMap[*result.ParentURL] = &Page{
-				URL:          *result.ParentURL,
+		// Формируем массив небитых страниц
+		if result.StatusCode != nil && *result.StatusCode < 400 && result.URL != opts.URL {
+
+			pagesMap[result.URL] = &Page{
+				URL:          result.URL,
 				Depth:        1,
-				HttpStatus:   *result.ParentStatusCode,
-				Status:       *result.ParentStatus,
-				BrokenLinks:  []Link{link},
+				HttpStatus:   *result.StatusCode,
+				Status:       strings.ToLower(result.ParentStatus),
+				Seo:          *result.Seo,
 				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
+			}
+		}
+	}
+
+	// Добавляем битые ссылки
+	fmt.Println("БИТЫЕ ССЫЛКИ : ")
+	for _, brokenLink := range brokenLinks {
+		fmt.Println(brokenLink)
+		if brokenLink.Error != nil {
+			if page, exists := pagesMap[brokenLink.ParentURL]; exists {
+				if page.BrokenLinks == nil {
+					page.BrokenLinks = &[]BrokenLink{}
+				}
+				*page.BrokenLinks = append(*page.BrokenLinks, BrokenLink{
+					URL:   brokenLink.URL,
+					Error: brokenLink.Error,
+				})
+			}
+		} else if brokenLink.StatusCode != nil {
+			if page, exists := pagesMap[brokenLink.ParentURL]; exists {
+				if page.BrokenLinks == nil {
+					page.BrokenLinks = &[]BrokenLink{}
+				}
+				*page.BrokenLinks = append(*page.BrokenLinks, BrokenLink{
+					URL:        brokenLink.URL,
+					StatusCode: brokenLink.StatusCode,
+				})
 			}
 		}
 	}
@@ -225,42 +253,34 @@ func worker(
 					case results <- Link{
 						URL:              job.URL,
 						Error:            &errMsg,
-						ParentURL:        &job.ParentURL,
-						ParentStatusCode: &job.ParentStatusCode,
-						ParentStatus:     &job.ParentStatus,
+						ParentURL:        job.ParentURL,
+						ParentStatusCode: job.ParentStatusCode,
+						ParentStatus:     job.ParentStatus,
 					}:
 					case <-ctx.Done():
 					}
-
 					return
-
 				}
 
 				if resp == nil {
-					fmt.Printf("Worker %d: resp is nil for %s\n", id, job.URL)
-					fmt.Printf("Worker %d: resp is nil for %s\n", id, job.URL)
+					//fmt.Printf("Worker %d: resp is nil for %s\n", id, job.URL)
+					//fmt.Printf("Worker %d: resp is nil for %s\n", id, job.URL)
 					errMsg := "response is nil"
 					select {
 					case results <- Link{
 						URL:              job.URL,
 						Error:            &errMsg,
-						ParentURL:        &job.ParentURL,
-						ParentStatusCode: &resp.StatusCode,
-						ParentStatus:     &resp.Status,
+						ParentURL:        job.ParentURL,
+						ParentStatusCode: resp.StatusCode,
+						ParentStatus:     resp.Status,
 					}:
 					case <-ctx.Done():
 					}
-
 					return
-
 				}
 
-				//fmt.Printf("Worker %d: ОТВЕТ %s: %s\n", id, job.URL, resp.Status)
-
 				links := getLinksFromHtml(html, job.URL, opts)
-				//fmt.Printf("Worker %d: нашел %d ссылок на %s\n", id, len(links), job.URL)
-
-				// Добавляем новые задачи
+				seo := getSeoFromHtml(html)
 
 				// Добавляем новые задачи
 				for _, link := range links {
@@ -282,6 +302,7 @@ func worker(
 								ParentURL:        job.URL,
 								ParentStatusCode: resp.StatusCode,
 								ParentStatus:     respStatus,
+								//ParentSeo:        Seo{HasTitle: seo.HasTitle},
 							}:
 							case <-ctx.Done():
 								jobWg.Done()
@@ -298,9 +319,10 @@ func worker(
 				case results <- Link{
 					URL:              job.URL,
 					StatusCode:       &resp.StatusCode,
-					ParentURL:        &job.ParentURL,
-					ParentStatusCode: &job.ParentStatusCode,
-					ParentStatus:     &job.ParentStatus,
+					ParentURL:        job.ParentURL,
+					ParentStatusCode: job.ParentStatusCode,
+					ParentStatus:     job.ParentStatus,
+					Seo:              &seo,
 				}:
 					//fmt.Printf("Worker %d: отправил результат для %s\n", id, job.URL)
 				case <-ctx.Done():
@@ -414,6 +436,84 @@ func getLinksFromHtml(htmlBody string, baseURL string, opts Options) []string {
 
 	findLinks(doc)
 	return links
+}
+
+func getSeoFromHtml(htmlBody string) Seo {
+	doc, err := html.Parse(strings.NewReader(htmlBody))
+	if err != nil {
+		fmt.Printf("Ошибка парсинга HTML: %v\n", err)
+		return Seo{
+			HasTitle:       false,
+			HasDescription: false,
+			HasH1:          false,
+		}
+	}
+
+	seo := Seo{
+		HasTitle:       false,
+		HasDescription: false,
+		HasH1:          false,
+	}
+
+	var findElements func(*html.Node)
+	findElements = func(n *html.Node) {
+		// Поиск title
+		if n.Type == html.ElementNode && n.Data == "title" {
+			titleText := strings.TrimSpace(extractText(n))
+			if titleText != "" {
+				seo.HasTitle = true
+				seo.Title = titleText
+			}
+		}
+
+		// Поиск meta description
+		if n.Type == html.ElementNode && n.Data == "meta" {
+			var isDescription bool
+			var content string
+			for _, attr := range n.Attr {
+				if attr.Key == "name" && strings.ToLower(attr.Val) == "description" {
+					isDescription = true
+				}
+				if attr.Key == "content" {
+					content = attr.Val
+				}
+			}
+			if isDescription && content != "" {
+				seo.HasDescription = true
+				seo.Description = content
+			}
+		}
+
+		// Поиск h1 - только проверяем наличие, текст не сохраняем
+		if n.Type == html.ElementNode && n.Data == "h1" && !seo.HasH1 {
+			h1Text := strings.TrimSpace(extractText(n))
+			if h1Text != "" {
+				seo.HasH1 = true
+				// НЕ сохраняем текст h1, только флаг
+			}
+		}
+
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			findElements(c)
+		}
+	}
+
+	findElements(doc)
+	return seo
+}
+
+func extractText(n *html.Node) string {
+	if n.Type == html.TextNode {
+		// Декодируем HTML-сущности: &amp; → &, &lt; → <, &quot; → " и т.д.
+		decoded := html.UnescapeString(n.Data)
+		return strings.TrimSpace(decoded)
+	}
+
+	var text strings.Builder
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		text.WriteString(extractText(c))
+	}
+	return strings.TrimSpace(text.String())
 }
 
 func NormalizeURL(href, baseURL string) (string, error) {
