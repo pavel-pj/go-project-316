@@ -13,12 +13,18 @@ import (
 	"time"
 
 	"golang.org/x/net/html"
+	"golang.org/x/time/rate"
 )
 
 type Options struct {
 	URL        string
 	Depth      int32
 	HTTPClient *http.Client
+	Delay      time.Duration
+	RPS        int
+	Retries    int
+	UserAgent  string
+	Workers    int
 }
 
 type Root struct {
@@ -64,8 +70,11 @@ type Seo struct {
 }
 
 var (
-	visited   = make(map[string]struct{})
-	visitedMu sync.RWMutex
+	visited       = make(map[string]struct{})
+	visitedMu     sync.RWMutex
+	globalLimiter *rate.Limiter
+	lastLogTime   time.Time
+	logMu         sync.Mutex
 )
 
 type Job struct {
@@ -76,7 +85,6 @@ type Job struct {
 	Depth            int
 }
 
-// Расширенный список User-Agent как в рабочем примере
 var userAgents = []string{
 	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -93,7 +101,6 @@ func getRandomUserAgent() string {
 	return userAgents[rng.Intn(len(userAgents))]
 }
 
-// Генерация случайного IP для X-Forwarded-For
 func getRandomIP() string {
 	return fmt.Sprintf("%d.%d.%d.%d",
 		rand.Intn(255),
@@ -102,17 +109,55 @@ func getRandomIP() string {
 		rand.Intn(255))
 }
 
-// Генерация случайной задержки для воркеров (миллисекунды)
-func getRandomWorkerDelay() time.Duration {
-	// От 1 до 25 секунд как в оригинале, но теперь в диапазоне 3-10 секунд
-	//delay := rand.Intn(2000) + 3000 // 3-10 секунд в миллисекундах
-	delay := rand.Intn(1) + 1 // 3-10 секунд в миллисекундах
-	return time.Duration(delay) * time.Millisecond
+// setupRateLimiter настраивает глобальный лимитер запросов
+func setupRateLimiter(opts Options) {
+	if opts.RPS > 0 {
+		// burst = 1 - важно! не разрешаем пачку запросов сразу
+		globalLimiter = rate.NewLimiter(rate.Limit(opts.RPS), 1)
+		fmt.Printf("RPS лимитер: %d запросов/сек (интервал %v)\n", opts.RPS, time.Second/time.Duration(opts.RPS))
+	} else if opts.Delay > 0 {
+		rps := float64(time.Second) / float64(opts.Delay)
+		globalLimiter = rate.NewLimiter(rate.Limit(rps), 1)
+		fmt.Printf("Delay %v преобразован в RPS: %.2f (интервал %v)\n", opts.Delay, rps, opts.Delay)
+	} else {
+		globalLimiter = nil
+		fmt.Println("Без ограничения скорости")
+	}
+}
+
+// waitForRateLimit ожидает разрешения от rate limiter
+func waitForRateLimit(ctx context.Context) error {
+	if globalLimiter == nil {
+		return nil
+	}
+	start := time.Now()
+	err := globalLimiter.Wait(ctx)
+	if err == nil {
+		elapsed := time.Since(start)
+		if elapsed > 0 {
+			logMu.Lock()
+			now := time.Now()
+			if lastLogTime.IsZero() {
+				fmt.Printf("[%s] Rate limiter: первый запрос (без задержки)\n", now.Format("15:04:05.000"))
+			} else {
+				actualInterval := now.Sub(lastLogTime)
+				fmt.Printf("[%s] Rate limiter: задержка %.3f сек (фактический интервал %.3f сек)\n",
+					now.Format("15:04:05.000"), elapsed.Seconds(), actualInterval.Seconds())
+			}
+			lastLogTime = now
+			logMu.Unlock()
+		}
+	}
+	return err
 }
 
 func Analyze(ctx context.Context, opts Options) ([]byte, error) {
+	setupRateLimiter(opts)
 
-	fmt.Println(opts.Depth)
+	workersCount := opts.Workers
+	if workersCount <= 0 {
+		workersCount = 4
+	}
 
 	jobs := make(chan Job, 200)
 	results := make(chan Link, 200)
@@ -120,8 +165,6 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	var wg sync.WaitGroup
 	var jobWg sync.WaitGroup
 
-	// Запускаем воркеров (можно увеличить количество)
-	workersCount := 5 // Измените на нужное количество воркеров
 	for i := 0; i < workersCount; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -130,7 +173,6 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}(i)
 	}
 
-	// Добавляем корневую задачу
 	jobWg.Add(1)
 	jobs <- Job{
 		URL:       opts.URL,
@@ -138,13 +180,11 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		Depth:     int(opts.Depth),
 	}
 
-	// Мониторинг завершения - закрываем jobs когда все задачи выполнены
 	go func() {
 		jobWg.Wait()
 		close(jobs)
 	}()
 
-	// Закрываем results после того, как все воркеры завершились
 	go func() {
 		wg.Wait()
 		close(results)
@@ -154,17 +194,13 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	var brokenLinks []Link
 
 	for result := range results {
-
-		// Формируем массив битых ссылок
 		if result.Error != nil {
 			brokenLinks = append(brokenLinks, result)
 		} else if result.StatusCode != nil && *result.StatusCode >= 400 {
 			brokenLinks = append(brokenLinks, result)
 		}
 
-		// Формируем массив небитых страниц
 		if result.StatusCode != nil && *result.StatusCode < 400 && result.URL != opts.URL {
-
 			pagesMap[result.URL] = &Page{
 				URL:          result.URL,
 				Depth:        result.Depth,
@@ -176,10 +212,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}
 	}
 
-	// Добавляем битые ссылки
-
 	for _, brokenLink := range brokenLinks {
-
 		if brokenLink.Error != nil {
 			if page, exists := pagesMap[brokenLink.ParentURL]; exists {
 				if page.BrokenLinks == nil {
@@ -203,7 +236,6 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}
 	}
 
-	// Конвертируем map в слайс
 	var pages []Page
 	for _, page := range pagesMap {
 		pages = append(pages, *page)
@@ -227,139 +259,127 @@ func worker(
 	jobWg *sync.WaitGroup,
 	opts Options,
 ) {
-
-	// Создаем локальный генератор случайных чисел для каждого воркера
 	rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(id)))
 
 	for job := range jobs {
+		if job.Depth < 0 {
+			jobWg.Done()
+			continue
+		}
 
-		// Используем задержку как в рабочем примере (3-10 секунд)
-		delay := getRandomWorkerDelay()
+		// Глобальный rate limiter - ЗДЕСЬ, до выполнения запроса
+		if err := waitForRateLimit(ctx); err != nil {
+			jobWg.Done()
+			continue
+		}
 
-		func() {
+		fmt.Printf("Worker %d парсит %s, depth:%d\n", id, job.URL, job.Depth)
+
+		html, resp, respStatus, errResp := parseHtml(ctx, job.URL, opts, rng, id)
+		if errResp != nil {
+			errMsg := errResp.Error()
 			select {
-			case <-time.After(delay):
-				fmt.Printf("Парсим %s, depth:%d\n", job.URL, job.Depth)
-				html, resp, respStatus, errResp := parseHtml(ctx, job.URL, opts, rng)
-
-				if errResp != nil {
-					// Отправляем результат с ошибкой
-					errMsg := errResp.Error()
-					select {
-					case results <- Link{
-						URL:              job.URL,
-						Error:            &errMsg,
-						ParentURL:        job.ParentURL,
-						ParentStatusCode: job.ParentStatusCode,
-						ParentStatus:     job.ParentStatus,
-					}:
-					case <-ctx.Done():
-					}
-					return
-				}
-
-				if resp == nil {
-
-					errMsg := "response is nil"
-					select {
-					case results <- Link{
-						URL:              job.URL,
-						Error:            &errMsg,
-						ParentURL:        job.ParentURL,
-						ParentStatusCode: resp.StatusCode,
-						ParentStatus:     resp.Status,
-					}:
-					case <-ctx.Done():
-					}
-					return
-				}
-
-				// если данная ссылка не принадлежит домену - не парсим дальше
-				if !IsSameDomain(job.URL, opts.URL) {
-					return
-				}
-
-				seo := getSeoFromHtml(html)
-
-				// Если НЕ конечная глубина
-				if job.Depth > 0 {
-					links := getLinksFromHtml(html, job.URL, opts)
-					// Добавляем новые задачи
-					for _, link := range links {
-						if isNewLink(link) {
-							validatedLink, err := NormalizeURL(link, opts.URL)
-							if err != nil {
-								continue
-							}
-
-							visitedMu.Lock()
-							if _, exists := visited[link]; !exists {
-								visited[link] = struct{}{}
-								visitedMu.Unlock()
-
-								jobWg.Add(1)
-								select {
-								case jobs <- Job{
-									URL:              validatedLink,
-									ParentURL:        job.URL,
-									ParentStatusCode: resp.StatusCode,
-									ParentStatus:     respStatus,
-									Depth:            job.Depth - 1,
-								}:
-								case <-ctx.Done():
-									jobWg.Done()
-									return
-								}
-							} else {
-								visitedMu.Unlock()
-							}
-						}
-					}
-				}
-
-				select {
-				case results <- Link{
-					URL:              job.URL,
-					StatusCode:       &resp.StatusCode,
-					ParentURL:        job.ParentURL,
-					ParentStatusCode: job.ParentStatusCode,
-					ParentStatus:     job.ParentStatus,
-					Seo:              &seo,
-					Depth:            job.Depth,
-				}:
-				case <-ctx.Done():
-					jobWg.Done()
-					return
-				}
-
+			case results <- Link{
+				URL:              job.URL,
+				Error:            &errMsg,
+				ParentURL:        job.ParentURL,
+				ParentStatusCode: job.ParentStatusCode,
+				ParentStatus:     job.ParentStatus,
+			}:
 			case <-ctx.Done():
-				jobWg.Done()
-				return
 			}
-		}()
+			jobWg.Done()
+			continue
+		}
+
+		if resp == nil {
+			errMsg := "response is nil"
+			select {
+			case results <- Link{
+				URL:              job.URL,
+				Error:            &errMsg,
+				ParentURL:        job.ParentURL,
+				ParentStatusCode: resp.StatusCode,
+				ParentStatus:     resp.Status,
+			}:
+			case <-ctx.Done():
+			}
+			jobWg.Done()
+			continue
+		}
+
+		if !IsSameDomain(job.URL, opts.URL) {
+			jobWg.Done()
+			continue
+		}
+
+		seo := getSeoFromHtml(html)
+
+		if job.Depth > 0 {
+			links := getLinksFromHtml(html, job.URL, opts)
+			for _, link := range links {
+				if isNewLink(link) {
+					validatedLink, err := NormalizeURL(link, opts.URL)
+					if err != nil {
+						continue
+					}
+
+					visitedMu.Lock()
+					if _, exists := visited[link]; !exists {
+						visited[link] = struct{}{}
+						visitedMu.Unlock()
+
+						jobWg.Add(1)
+						select {
+						case jobs <- Job{
+							URL:              validatedLink,
+							ParentURL:        job.URL,
+							ParentStatusCode: resp.StatusCode,
+							ParentStatus:     respStatus,
+							Depth:            job.Depth - 1,
+						}:
+						case <-ctx.Done():
+							jobWg.Done()
+							return
+						}
+					} else {
+						visitedMu.Unlock()
+					}
+				}
+			}
+		}
+
+		select {
+		case results <- Link{
+			URL:              job.URL,
+			StatusCode:       &resp.StatusCode,
+			ParentURL:        job.ParentURL,
+			ParentStatusCode: job.ParentStatusCode,
+			ParentStatus:     job.ParentStatus,
+			Seo:              &seo,
+			Depth:            job.Depth,
+		}:
+		case <-ctx.Done():
+			jobWg.Done()
+			return
+		}
 
 		jobWg.Done()
 	}
-
 }
 
 func IsSameDomain(link, domain string) bool {
-	// Парсим домен (базовый URL)
 	domainURL, err := url.Parse(domain)
 	if err != nil {
 		return false
 	}
 
-	// Парсим проверяемую ссылку
 	linkURL, err := url.Parse(link)
 	if err != nil {
 		return false
 	}
 
-	// Сравниваем хосты (домены)
-	// Приводим к нижнему регистру, так как домены регистронезависимы
 	return strings.ToLower(domainURL.Host) == strings.ToLower(linkURL.Host)
-
 }
 
 func isNewLink(link string) bool {
@@ -369,42 +389,39 @@ func isNewLink(link string) bool {
 	return !ok
 }
 
-func parseHtml(ctx context.Context, link string, opts Options, rng *rand.Rand) (string, *http.Response, string, error) {
+func parseHtml(ctx context.Context, link string, opts Options, rng *rand.Rand, workerID int) (string, *http.Response, string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", link, nil)
 	if err != nil {
 		return "", nil, "", fmt.Errorf("cant prepare request to url:%s, %w", link, err)
 	}
 
-	// Устанавливаем случайный User-Agent
 	randomUA := getRandomUserAgent()
 	req.Header.Set("User-Agent", randomUA)
 
-	// Устанавливаем все заголовки как в рабочем примере
-
 	req.Header.Set("Accept-Language", "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3")
-	//req.Header.Set("Accept-Encoding", "gzip, deflate, br")
 	req.Header.Set("Connection", "keep-alive")
 	req.Header.Set("Cache-Control", "no-cache")
 
-	// Добавляем случайный заголовок X-Forwarded-For
 	randomIP := getRandomIP()
 	req.Header.Set("X-Forwarded-For", randomIP)
 
-	// Дополнительные заголовки для более реалистичного поведения
 	req.Header.Set("Upgrade-Insecure-Requests", "1")
 	req.Header.Set("Sec-Fetch-Dest", "document")
 	req.Header.Set("Sec-Fetch-Mode", "navigate")
 	req.Header.Set("Sec-Fetch-Site", "none")
 	req.Header.Set("Sec-Fetch-User", "?1")
 
-	// Добавляем Referer для некоторых запросов (с вероятностью 70%)
 	if rng.Float64() < 0.7 {
-		referer := fmt.Sprintf("https://%s/", strings.Split(link, "/")[2])
-		req.Header.Set("Referer", referer)
+		parts := strings.Split(link, "/")
+		if len(parts) > 2 {
+			referer := fmt.Sprintf("https://%s/", parts[2])
+			req.Header.Set("Referer", referer)
+		}
 	}
 
-	resp, err := opts.HTTPClient.Do(req)
+	fmt.Printf("[Worker %d] Время запроса к %s: %s\n", workerID, link, time.Now().Format("15:04:05.000"))
 
+	resp, err := opts.HTTPClient.Do(req)
 	if err != nil {
 		return "", nil, "", fmt.Errorf("cant handle request to url:%s, %w", link, err)
 	}
@@ -419,7 +436,7 @@ func parseHtml(ctx context.Context, link string, opts Options, rng *rand.Rand) (
 	parentStatus := ""
 	parts := strings.Split(resp.Status, " ")
 	if len(parts) == 2 {
-		parentStatus = parts[1] // Берем "OK"
+		parentStatus = parts[1]
 	}
 
 	return string(body), resp, parentStatus, nil
@@ -475,7 +492,6 @@ func getSeoFromHtml(htmlBody string) Seo {
 
 	var findElements func(*html.Node)
 	findElements = func(n *html.Node) {
-		// Поиск title
 		if n.Type == html.ElementNode && n.Data == "title" {
 			titleText := strings.TrimSpace(extractText(n))
 			if titleText != "" {
@@ -484,7 +500,6 @@ func getSeoFromHtml(htmlBody string) Seo {
 			}
 		}
 
-		// Поиск meta description
 		if n.Type == html.ElementNode && n.Data == "meta" {
 			var isDescription bool
 			var content string
@@ -502,12 +517,10 @@ func getSeoFromHtml(htmlBody string) Seo {
 			}
 		}
 
-		// Поиск h1 - только проверяем наличие, текст не сохраняем
 		if n.Type == html.ElementNode && n.Data == "h1" && !seo.HasH1 {
 			h1Text := strings.TrimSpace(extractText(n))
 			if h1Text != "" {
 				seo.HasH1 = true
-				// НЕ сохраняем текст h1, только флаг
 			}
 		}
 
@@ -522,7 +535,6 @@ func getSeoFromHtml(htmlBody string) Seo {
 
 func extractText(n *html.Node) string {
 	if n.Type == html.TextNode {
-		// Декодируем HTML-сущности: &amp; → &, &lt; → <, &quot; → " и т.д.
 		decoded := html.UnescapeString(n.Data)
 		return strings.TrimSpace(decoded)
 	}
@@ -535,7 +547,6 @@ func extractText(n *html.Node) string {
 }
 
 func NormalizeURL(href, baseURL string) (string, error) {
-
 	if strings.HasPrefix(href, "#") {
 		return "", fmt.Errorf("skip anchor: %s", href)
 	}

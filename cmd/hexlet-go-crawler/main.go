@@ -18,15 +18,6 @@ func main() {
 		Usage:     "analyze a website structure",
 		UsageText: "hexlet-go-crawler [global options] [command] <url>",
 
-		Commands: []*cli.Command{
-			{
-				Action: func(context.Context, *cli.Command) error {
-					//fmt.Println("Hello friend!")
-					return nil
-				},
-			},
-		},
-
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:  "depth",
@@ -68,22 +59,29 @@ func main() {
 			args := cmd.Args().Slice()
 
 			if len(args) < 1 {
-				return errors.New("error: requires a URL\nExample: hexlet-go-crawler https://example.com\nIf you want to see help: hexlet-go-crawler --help")
+				return errors.New("error: requires a URL\nExample: hexlet-go-crawler https://example.com")
 			}
 
-			depth := cmd.Int("depth")
+			httpClient := &http.Client{
+				Timeout: cmd.Duration("timeout"),
+			}
 
 			res, err := crawler.Analyze(
 				context.Background(),
 				crawler.Options{
 					URL:        args[0],
-					Depth:      int32(depth),
-					HTTPClient: &http.Client{},
+					Depth:      int32(cmd.Int("depth")),
+					HTTPClient: httpClient,
+					Delay:      cmd.Duration("delay"),
+					RPS:        cmd.Int("rps"),
+					Retries:    cmd.Int("retries"),
+					UserAgent:  cmd.String("user-agent"),
+					Workers:    cmd.Int("workers"),
 				})
 			if err != nil {
 				return fmt.Errorf("%w", err)
 			}
-			//fmt.Println("Результат")
+
 			fmt.Println(string(res))
 			return nil
 		},
