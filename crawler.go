@@ -52,6 +52,7 @@ type Link struct {
 	ParentStatusCode int     `json:"parent_http_status,omitempty"`
 	ParentStatus     string  `json:"parent_status,omitempty"`
 	Seo              *Seo    `json:"seo,omitempty"`
+	Depth            int     `json:"depth"`
 }
 
 type Seo struct {
@@ -72,7 +73,7 @@ type Job struct {
 	ParentURL        string
 	ParentStatusCode int
 	ParentStatus     string
-	//ParentSeo        Seo
+	Depth            int
 }
 
 // Расширенный список User-Agent как в рабочем примере
@@ -110,6 +111,9 @@ func getRandomWorkerDelay() time.Duration {
 }
 
 func Analyze(ctx context.Context, opts Options) ([]byte, error) {
+
+	fmt.Println(opts.Depth)
+
 	jobs := make(chan Job, 200)
 	results := make(chan Link, 200)
 
@@ -131,20 +135,18 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	jobs <- Job{
 		URL:       opts.URL,
 		ParentURL: opts.URL,
+		Depth:     int(opts.Depth),
 	}
 
 	// Мониторинг завершения - закрываем jobs когда все задачи выполнены
 	go func() {
 		jobWg.Wait()
-		//fmt.Println("Все задачи выполнены, закрываем jobs")
 		close(jobs)
-		//fmt.Println("ЗАКРЫЛИ jobs")
 	}()
 
 	// Закрываем results после того, как все воркеры завершились
 	go func() {
 		wg.Wait()
-		fmt.Println("Все воркеры завершились, закрываем results")
 		close(results)
 	}()
 
@@ -165,7 +167,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 			pagesMap[result.URL] = &Page{
 				URL:          result.URL,
-				Depth:        1,
+				Depth:        result.Depth,
 				HttpStatus:   *result.StatusCode,
 				Status:       strings.ToLower(result.ParentStatus),
 				Seo:          *result.Seo,
@@ -175,9 +177,9 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	}
 
 	// Добавляем битые ссылки
-	fmt.Println("БИТЫЕ ССЫЛКИ : ")
+
 	for _, brokenLink := range brokenLinks {
-		fmt.Println(brokenLink)
+
 		if brokenLink.Error != nil {
 			if page, exists := pagesMap[brokenLink.ParentURL]; exists {
 				if page.BrokenLinks == nil {
@@ -209,16 +211,11 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	result := Root{
 		RootURL:     opts.URL,
-		Depth:       1,
+		Depth:       int(opts.Depth),
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Pages:       pages,
 	}
 
-	//fmt.Printf("Закрыли workres\n")
-	//fmt.Println(data)
-
-	//fmt.Printf("Собрано результатов: %d\n", len(data))
-	//return json.Marshal(brokenLinks)
 	return json.MarshalIndent(result, "", "  ")
 }
 
@@ -235,18 +232,17 @@ func worker(
 	rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(id)))
 
 	for job := range jobs {
-		//fmt.Printf("Worker %d: начал обработку %s\n", id, job.URL)
 
 		// Используем задержку как в рабочем примере (3-10 секунд)
 		delay := getRandomWorkerDelay()
-		//fmt.Printf("Worker %d: жду %v перед запросом к %s\n", id, delay, job.URL)
 
 		func() {
 			select {
 			case <-time.After(delay):
+				fmt.Printf("Парсим %s, depth:%d\n", job.URL, job.Depth)
 				html, resp, respStatus, errResp := parseHtml(ctx, job.URL, opts, rng)
+
 				if errResp != nil {
-					//fmt.Printf("Worker %d: ошибка при запросе %s: %v\n", id, job.URL, errResp)
 					// Отправляем результат с ошибкой
 					errMsg := errResp.Error()
 					select {
@@ -263,8 +259,7 @@ func worker(
 				}
 
 				if resp == nil {
-					//fmt.Printf("Worker %d: resp is nil for %s\n", id, job.URL)
-					//fmt.Printf("Worker %d: resp is nil for %s\n", id, job.URL)
+
 					errMsg := "response is nil"
 					select {
 					case results <- Link{
@@ -279,41 +274,48 @@ func worker(
 					return
 				}
 
-				links := getLinksFromHtml(html, job.URL, opts)
+				// если данная ссылка не принадлежит домену - не парсим дальше
+				if !IsSameDomain(job.URL, opts.URL) {
+					return
+				}
+
 				seo := getSeoFromHtml(html)
 
-				// Добавляем новые задачи
-				for _, link := range links {
-					if isNewLink(link) {
-						validatedLink, err := NormalizeURL(link, opts.URL)
-						if err != nil {
-							continue
-						}
-
-						visitedMu.Lock()
-						if _, exists := visited[link]; !exists {
-							visited[link] = struct{}{}
-							visitedMu.Unlock()
-
-							jobWg.Add(1)
-							select {
-							case jobs <- Job{
-								URL:              validatedLink,
-								ParentURL:        job.URL,
-								ParentStatusCode: resp.StatusCode,
-								ParentStatus:     respStatus,
-								//ParentSeo:        Seo{HasTitle: seo.HasTitle},
-							}:
-							case <-ctx.Done():
-								jobWg.Done()
-								return
+				// Если НЕ конечная глубина
+				if job.Depth > 0 {
+					links := getLinksFromHtml(html, job.URL, opts)
+					// Добавляем новые задачи
+					for _, link := range links {
+						if isNewLink(link) {
+							validatedLink, err := NormalizeURL(link, opts.URL)
+							if err != nil {
+								continue
 							}
-						} else {
-							visitedMu.Unlock()
+
+							visitedMu.Lock()
+							if _, exists := visited[link]; !exists {
+								visited[link] = struct{}{}
+								visitedMu.Unlock()
+
+								jobWg.Add(1)
+								select {
+								case jobs <- Job{
+									URL:              validatedLink,
+									ParentURL:        job.URL,
+									ParentStatusCode: resp.StatusCode,
+									ParentStatus:     respStatus,
+									Depth:            job.Depth - 1,
+								}:
+								case <-ctx.Done():
+									jobWg.Done()
+									return
+								}
+							} else {
+								visitedMu.Unlock()
+							}
 						}
 					}
 				}
-				//fmt.Printf("Worker %d: добавил %d новых задач\n", id, newJobsCount)
 
 				select {
 				case results <- Link{
@@ -323,8 +325,8 @@ func worker(
 					ParentStatusCode: job.ParentStatusCode,
 					ParentStatus:     job.ParentStatus,
 					Seo:              &seo,
+					Depth:            job.Depth,
 				}:
-					//fmt.Printf("Worker %d: отправил результат для %s\n", id, job.URL)
 				case <-ctx.Done():
 					jobWg.Done()
 					return
@@ -337,10 +339,27 @@ func worker(
 		}()
 
 		jobWg.Done()
-		//fmt.Printf("Worker %d: закончил обработку %s\n", id, job.URL)
 	}
 
-	//fmt.Printf("Worker %d: вышел из цикла jobs\n", id)
+}
+
+func IsSameDomain(link, domain string) bool {
+	// Парсим домен (базовый URL)
+	domainURL, err := url.Parse(domain)
+	if err != nil {
+		return false
+	}
+
+	// Парсим проверяемую ссылку
+	linkURL, err := url.Parse(link)
+	if err != nil {
+		return false
+	}
+
+	// Сравниваем хосты (домены)
+	// Приводим к нижнему регистру, так как домены регистронезависимы
+	return strings.ToLower(domainURL.Host) == strings.ToLower(linkURL.Host)
+
 }
 
 func isNewLink(link string) bool {
@@ -384,9 +403,8 @@ func parseHtml(ctx context.Context, link string, opts Options, rng *rand.Rand) (
 		req.Header.Set("Referer", referer)
 	}
 
-	//fmt.Printf("Запрос к %s: User-Agent=%s, X-Forwarded-For=%s\n",link, randomUA[:50]+"...", randomIP)
-
 	resp, err := opts.HTTPClient.Do(req)
+
 	if err != nil {
 		return "", nil, "", fmt.Errorf("cant handle request to url:%s, %w", link, err)
 	}

@@ -6,12 +6,12 @@
 
 #### Разработка:
 ```
-go run cmd/hexlet-go-crawler/main.go https://mail.ru	
+go run cmd/hexlet-go-crawler/main.go  --depth=4https://mail.ru	
 ```
 #### или 
 ```
-make run URL=https://mail.ru	
-```
+make run URL=https://mail.ru
+go run cmd/hexlet-go-crawler/main.go  --depth=4	URL=http://localhost:8888
 
 
 #### Собрать :

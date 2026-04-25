@@ -21,7 +21,7 @@ func main() {
 		Commands: []*cli.Command{
 			{
 				Action: func(context.Context, *cli.Command) error {
-					fmt.Println("Hello friend!")
+					//fmt.Println("Hello friend!")
 					return nil
 				},
 			},
@@ -71,17 +71,19 @@ func main() {
 				return errors.New("error: requires a URL\nExample: hexlet-go-crawler https://example.com\nIf you want to see help: hexlet-go-crawler --help")
 			}
 
+			depth := cmd.Int("depth")
+
 			res, err := crawler.Analyze(
 				context.Background(),
 				crawler.Options{
-					args[0],
-					3,
-					&http.Client{},
+					URL:        args[0],
+					Depth:      int32(depth),
+					HTTPClient: &http.Client{},
 				})
 			if err != nil {
 				return fmt.Errorf("%w", err)
 			}
-			fmt.Println("Результат")
+			//fmt.Println("Результат")
 			fmt.Println(string(res))
 			return nil
 		},
