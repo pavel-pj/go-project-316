@@ -1,8 +1,8 @@
 package main
 
 import (
-	crawler "code"
 	"context"
+	crawler "crawler"
 	"errors"
 	"fmt"
 	"log"
