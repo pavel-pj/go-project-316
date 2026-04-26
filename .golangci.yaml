@@ -12,7 +12,7 @@ linters:
     - ineffassign
     - bodyclose
     - noctx
-    - gocritic
+    - gocritic 
     - errorlint
     - nilerr
     - wrapcheck
