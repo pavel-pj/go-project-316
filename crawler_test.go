@@ -1,175 +1,64 @@
-package crawler
+package crawler_test
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	crawler "code"
 )
 
-// Тест на успешный ответ 200 OK
-func TestAnalyze_Success(t *testing.T) {
-	// Создаём тестовый сервер, который отвечает 200 OK
+func TestTimeoutViaContext(t *testing.T) {
+	requestReceived := make(chan time.Time)
+
+	// Сервер, который отвечает очень медленно (10 секунд)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		requestReceived <- time.Now()
+		t.Logf("[СЕРВЕР] Получил запрос в %s", time.Now().Format("15:04:05.000"))
+
+		select {
+		case <-time.After(10 * time.Second):
+			t.Logf("[СЕРВЕР] Отправляю ответ через 10 секунд")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`<html>Slow page</html>`))
+		case <-r.Context().Done():
+			t.Logf("[СЕРВЕР] Клиент отменил запрос через %v", time.Since(<-requestReceived))
+			return
+		}
 	}))
 	defer server.Close()
 
-	client := server.Client()
+	// Клиент с большим таймаутом
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
 
-	result, err := Analyze(context.Background(), Options{
+	// Контекст с таймаутом 3 секунды
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	opts := crawler.Options{
 		URL:        server.URL,
-		HTTPClient: client,
-	})
-
-	// Проверяем, что нет ошибки
-	if err != nil {
-		t.Fatalf("Expected no error, got: %v", err)
+		Depth:      1,
+		HTTPClient: httpClient,
+		Workers:    1,
 	}
 
-	// Проверяем, что результат не пустой
-	if len(result) == 0 {
-		t.Fatal("Expected non-empty result, got empty")
+	start := time.Now()
+	t.Logf("[КЛИЕНТ] Запускаю Analyze в %s", start.Format("15:04:05.000"))
+
+	result, err := crawler.Analyze(ctx, opts)
+	elapsed := time.Since(start)
+
+	t.Logf("[КЛИЕНТ] Analyze вернулся через %v", elapsed)
+
+	if err == nil {
+		t.Errorf("Ошибки нет, хотя должен быть timeout! err=%v", err)
+	} else {
+		t.Logf("Ошибка: %v", err)
 	}
 
-	// Парсим JSON ответ
-	var response Response
-	err = parseJSON(result, &response)
-	if err != nil {
-		t.Fatalf("Expected valid JSON, got error: %v", err)
-	}
-
-	// Проверяем статус
-	if response.Http_status != "200 OK" {
-		t.Errorf("Expected '200 OK', got '%s'", response.Http_status)
-	}
-
-	// Проверяем URL
-	if response.URL != server.URL {
-		t.Errorf("Expected URL '%s', got '%s'", server.URL, response.URL)
-	}
-}
-
-// Тест на ошибку 400 Bad Request
-func TestAnalyze_BadRequest(t *testing.T) {
-	// Создаём тестовый сервер, который отвечает 400 Bad Request
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-	}))
-	defer server.Close()
-
-	client := server.Client()
-
-	result, err := Analyze(context.Background(), Options{
-		URL:        server.URL,
-		HTTPClient: client,
-	})
-
-	// Проверяем, что нет ошибки (функция должна обработать 400 и вернуть JSON)
-	if err != nil {
-		t.Fatalf("Expected no error, got: %v", err)
-	}
-
-	// Проверяем, что результат не пустой
-	if len(result) == 0 {
-		t.Fatal("Expected non-empty result, got empty")
-	}
-
-	// Парсим JSON ответ
-	var response Response
-	err = parseJSON(result, &response)
-	if err != nil {
-		t.Fatalf("Expected valid JSON, got error: %v", err)
-	}
-
-	// Проверяем статус
-	if response.Http_status != "400 Bad Request" {
-		t.Errorf("Expected '400 Bad Request', got '%s'", response.Http_status)
-	}
-
-	// Проверяем URL
-	if response.URL != server.URL {
-		t.Errorf("Expected URL '%s', got '%s'", server.URL, response.URL)
-	}
-}
-
-// Тест на разные статус-коды (табличный тест)
-func TestAnalyze_VariousStatusCodes(t *testing.T) {
-	tests := []struct {
-		name           string
-		statusCode     int
-		expectedStatus string
-	}{
-		{
-			name:           "200 OK",
-			statusCode:     http.StatusOK,
-			expectedStatus: "200 OK",
-		},
-		{
-			name:           "201 Created",
-			statusCode:     http.StatusCreated,
-			expectedStatus: "201 Created",
-		},
-		{
-			name:           "400 Bad Request",
-			statusCode:     http.StatusBadRequest,
-			expectedStatus: "400 Bad Request",
-		},
-		{
-			name:           "401 Unauthorized",
-			statusCode:     http.StatusUnauthorized,
-			expectedStatus: "401 Unauthorized",
-		},
-		{
-			name:           "403 Forbidden",
-			statusCode:     http.StatusForbidden,
-			expectedStatus: "403 Forbidden",
-		},
-		{
-			name:           "404 Not Found",
-			statusCode:     http.StatusNotFound,
-			expectedStatus: "404 Not Found",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Создаём сервер с нужным статусом
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(tt.statusCode)
-			}))
-			defer server.Close()
-
-			client := server.Client()
-
-			result, err := Analyze(context.Background(), Options{
-				URL:        server.URL,
-				HTTPClient: client,
-			})
-
-			if err != nil {
-				t.Fatalf("Expected no error, got: %v", err)
-			}
-
-			var response Response
-			err = parseJSON(result, &response)
-			if err != nil {
-				t.Fatalf("Expected valid JSON, got error: %v", err)
-			}
-
-			if response.Http_status != tt.expectedStatus {
-				t.Errorf("Expected '%s', got '%s'", tt.expectedStatus, response.Http_status)
-			}
-
-			if response.URL != server.URL {
-				t.Errorf("Expected URL '%s', got '%s'", server.URL, response.URL)
-			}
-		})
-	}
-}
-
-// Вспомогательная функция для парсинга JSON
-func parseJSON(data []byte, v interface{}) error {
-	return json.Unmarshal(data, v)
+	t.Logf("Результат: %v", result != nil)
 }

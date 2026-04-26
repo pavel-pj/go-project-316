@@ -8,7 +8,7 @@ build:
 	go build -o bin/hexlet-go-crawler ./cmd/hexlet-go-crawler/main.go	
 	
 run:
-	go run cmd/hexlet-go-crawler/main.go  --depth=3  --delay=5s   http://localhost:8888
+	go run cmd/hexlet-go-crawler/main.go --depth=5 --rps=2 --retries=2  http://localhost:8888
 test:
 	go test -count=1 ./... -v
 	
