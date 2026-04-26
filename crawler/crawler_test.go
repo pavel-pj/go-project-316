@@ -1,7 +1,8 @@
-package crawler_test
+package crawler
 
 import (
 	"bytes"
+
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,8 +11,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	crawler "crawler"
 )
 
 // TestJSONOutputFormat проверяет, что JSON ответ соответствует ожидаемому формату
@@ -64,7 +63,7 @@ func TestJSONOutputFormat(t *testing.T) {
 		Timeout: 10 * time.Second,
 	}
 
-	opts := crawler.Options{
+	opts := Options{
 		URL:        server.URL,
 		Depth:      1,
 		HTTPClient: httpClient,
@@ -73,13 +72,13 @@ func TestJSONOutputFormat(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	resultJSON, err := crawler.Analyze(ctx, opts)
+	resultJSON, err := Analyze(ctx, opts)
 	if err != nil {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
 	// Парсим результат для проверки структуры
-	var result crawler.Root
+	var result Root
 	if err := json.Unmarshal(resultJSON, &result); err != nil {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
@@ -101,7 +100,7 @@ func TestJSONOutputFormat(t *testing.T) {
 	}
 
 	// Находим главную страницу
-	var homePage *crawler.Page
+	var homePage *Page
 	for i := range result.Pages {
 		if result.Pages[i].URL == server.URL {
 			homePage = &result.Pages[i]
@@ -206,7 +205,7 @@ func TestCompareWithGolden(t *testing.T) {
 		Timeout: 10 * time.Second,
 	}
 
-	opts := crawler.Options{
+	opts := Options{
 		URL:        server.URL,
 		Depth:      1,
 		HTTPClient: httpClient,
@@ -215,28 +214,28 @@ func TestCompareWithGolden(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	resultJSON, err := crawler.Analyze(ctx, opts)
+	resultJSON, err := Analyze(ctx, opts)
 	if err != nil {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
 	// Парсим результат
-	var result crawler.Root
+	var result Root
 	if err := json.Unmarshal(resultJSON, &result); err != nil {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
 
 	// СОЗДАЁМ НОРМАЛИЗОВАННУЮ КОПИЮ для сравнения
-	normalized := crawler.Root{
+	normalized := Root{
 		RootURL:     result.RootURL,
 		Depth:       result.Depth,
 		GeneratedAt: "2024-06-01T12:34:56Z",
-		Pages:       make([]crawler.Page, len(result.Pages)),
+		Pages:       make([]Page, len(result.Pages)),
 	}
 
 	for i, page := range result.Pages {
 		// Копируем страницу с нормализацией
-		normalizedPage := crawler.Page{
+		normalizedPage := Page{
 			URL:          page.URL,
 			Depth:        0, // Нормализуем depth в 0
 			HttpStatus:   page.HttpStatus,
@@ -248,9 +247,9 @@ func TestCompareWithGolden(t *testing.T) {
 
 		// Нормализуем broken_links
 		if page.BrokenLinks != nil {
-			normalizedLinks := make([]crawler.BrokenLink, len(*page.BrokenLinks))
+			normalizedLinks := make([]BrokenLink, len(*page.BrokenLinks))
 			for j, bl := range *page.BrokenLinks {
-				normalizedLinks[j] = crawler.BrokenLink{
+				normalizedLinks[j] = BrokenLink{
 					URL: bl.URL,
 				}
 				if bl.StatusCode != nil {
@@ -272,31 +271,31 @@ func TestCompareWithGolden(t *testing.T) {
 	}
 
 	// Создаём эталонный результат
-	expected := crawler.Root{
+	expected := Root{
 		RootURL:     server.URL,
 		Depth:       1,
 		GeneratedAt: "2024-06-01T12:34:56Z",
-		Pages: []crawler.Page{
+		Pages: []Page{
 			{
 				URL:        server.URL,
 				Depth:      0,
 				HttpStatus: 200,
 				Status:     "ok",
-				BrokenLinks: &[]crawler.BrokenLink{
+				BrokenLinks: &[]BrokenLink{
 					{
 						URL:        server.URL + "/broken",
 						StatusCode: intPtr(404),
 						Error:      strPtr("Not Found"),
 					},
 				},
-				Seo: crawler.Seo{
+				Seo: Seo{
 					HasTitle:       true,
 					Title:          "Golden Test",
 					HasDescription: true,
 					Description:    "Golden description",
 					HasH1:          true,
 				},
-				Assets:       []crawler.Asset{},
+				Assets:       []Asset{},
 				DiscoveredAt: "2024-06-01T12:34:56Z",
 			},
 		},
@@ -340,7 +339,7 @@ func TestRetryBehavior(t *testing.T) {
 		Timeout: 5 * time.Second,
 	}
 
-	opts := crawler.Options{
+	opts := Options{
 		URL:        server.URL,
 		Depth:      1,
 		HTTPClient: httpClient,
@@ -349,12 +348,12 @@ func TestRetryBehavior(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	resultJSON, err := crawler.Analyze(ctx, opts)
+	resultJSON, err := Analyze(ctx, opts)
 	if err != nil {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var result crawler.Root
+	var result Root
 	if err := json.Unmarshal(resultJSON, &result); err != nil {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
@@ -391,7 +390,7 @@ func TestRetryExhausted(t *testing.T) {
 		Timeout: 5 * time.Second,
 	}
 
-	opts := crawler.Options{
+	opts := Options{
 		URL:        server.URL,
 		Depth:      1,
 		HTTPClient: httpClient,
@@ -400,13 +399,13 @@ func TestRetryExhausted(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	resultJSON, err := crawler.Analyze(ctx, opts)
+	resultJSON, err := Analyze(ctx, opts)
 	if err != nil {
 		t.Logf("Got error as expected: %v", err)
 	}
 
 	// Парсим результат (должна быть ошибка в отчёте)
-	var result crawler.Root
+	var result Root
 	if err := json.Unmarshal(resultJSON, &result); err != nil {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
@@ -455,7 +454,7 @@ func TestAssetCache(t *testing.T) {
 		Timeout: 10 * time.Second,
 	}
 
-	opts := crawler.Options{
+	opts := Options{
 		URL:        server.URL,
 		Depth:      1,
 		HTTPClient: httpClient,
@@ -464,7 +463,7 @@ func TestAssetCache(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, err := crawler.Analyze(ctx, opts)
+	_, err := Analyze(ctx, opts)
 	if err != nil {
 		t.Fatalf("Analyze failed: %v", err)
 	}
@@ -504,7 +503,7 @@ func TestMissingContentLength(t *testing.T) {
 		Timeout: 10 * time.Second,
 	}
 
-	opts := crawler.Options{
+	opts := Options{
 		URL:        server.URL,
 		Depth:      1,
 		HTTPClient: httpClient,
@@ -513,12 +512,12 @@ func TestMissingContentLength(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	resultJSON, err := crawler.Analyze(ctx, opts)
+	resultJSON, err := Analyze(ctx, opts)
 	if err != nil {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var result crawler.Root
+	var result Root
 	if err := json.Unmarshal(resultJSON, &result); err != nil {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
@@ -560,7 +559,7 @@ func TestCLIOutputFormat(t *testing.T) {
 		Timeout: 10 * time.Second,
 	}
 
-	opts := crawler.Options{
+	opts := Options{
 		URL:        server.URL,
 		Depth:      0,
 		HTTPClient: httpClient,
@@ -568,7 +567,7 @@ func TestCLIOutputFormat(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	resultJSON, err := crawler.Analyze(ctx, opts)
+	resultJSON, err := Analyze(ctx, opts)
 	if err != nil {
 		t.Fatalf("Analyze failed: %v", err)
 	}
