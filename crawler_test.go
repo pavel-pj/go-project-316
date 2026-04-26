@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	crawler "code"
+	crawler "crawler"
 )
 
 // TestJSONOutputFormat проверяет, что JSON ответ соответствует ожидаемому формату
