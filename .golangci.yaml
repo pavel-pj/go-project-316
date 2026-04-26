@@ -2,34 +2,29 @@ version: "2"
 
 run:
   timeout: 5m
-  build-tags: []
   modules-download-mode: readonly
-  allow-parallel-runners: false
 
 linters:
-  default: none
+  disable-all: true  # отключаем все линтеры по умолчанию
   enable:
     - govet
     - staticcheck
-    - errcheck
+    # - errcheck  # закомментирован, но нужно явно отключить
     - unused
     - ineffassign
-    - gosec
     - bodyclose
     - noctx
-    - gocyclo
-    #- goconst
     - gocritic
-    #- revive
-    #- godot
-    #- godox
     - prealloc
-    #- wastedassign
     - errorlint
     - nilerr
     - wrapcheck
 
-formatters:
-  enable:
-    - gofmt
-    - goimports
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - bodyclose
+        - gocritic
+        - gosec

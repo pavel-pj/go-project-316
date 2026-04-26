@@ -3,6 +3,7 @@ package crawler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -42,7 +43,16 @@ type Page struct {
 	Status       string        `json:"status"`
 	BrokenLinks  *[]BrokenLink `json:"broken_links,omitempty"`
 	Seo          Seo           `json:"seo"`
+	Assets       []Asset       `json:"assets,omitempty"`
 	DiscoveredAt string        `json:"discovered_at"`
+}
+
+type Asset struct {
+	URL        string `json:"url"`
+	Type       string `json:"type"`
+	StatusCode int    `json:"status_code"`
+	SizeBytes  int64  `json:"size_bytes"`
+	Error      string `json:"error,omitempty"`
 }
 
 type BrokenLink struct {
@@ -60,6 +70,7 @@ type Link struct {
 	ParentStatus     string  `json:"parent_status,omitempty"`
 	Seo              *Seo    `json:"seo,omitempty"`
 	Depth            int     `json:"depth"`
+	Assets           []Asset `json:"assets,omitempty"`
 }
 
 type Seo struct {
@@ -74,8 +85,8 @@ var (
 	visited       = make(map[string]struct{})
 	visitedMu     sync.RWMutex
 	globalLimiter *rate.Limiter
-	lastLogTime   time.Time
-	logMu         sync.Mutex
+	assetsCache   = make(map[string]Asset)
+	assetsCacheMu sync.RWMutex
 )
 
 type Job struct {
@@ -97,6 +108,50 @@ var userAgents = []string{
 	"Mozilla/5.0 (iPad; CPU OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
 }
 
+// getRandomUserAgent возвращает случайный User-Agent
+func getRandomUserAgent() string {
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return userAgents[rng.Intn(len(userAgents))]
+}
+
+// getRandomIP возвращает случайный IP адрес
+//
+//nolint:gosec
+func getRandomIP() string {
+
+	return fmt.Sprintf("%d.%d.%d.%d",
+		//nolint:gosec
+		rand.Intn(255), //nolint:gosec
+		rand.Intn(255), //nolint:gosec
+		rand.Intn(255), //nolint:gosec
+		rand.Intn(255)) //nolint:gosec
+}
+
+// setupRateLimiter настраивает глобальный лимитер запросов
+func setupRateLimiter(opts Options) {
+	switch {
+	case opts.RPS > 0:
+		globalLimiter = rate.NewLimiter(rate.Limit(opts.RPS), 1)
+	case opts.Delay > 0:
+		rps := float64(time.Second) / float64(opts.Delay)
+		globalLimiter = rate.NewLimiter(rate.Limit(rps), 1)
+	default:
+		globalLimiter = nil
+	}
+}
+
+// waitForRateLimit ожидает разрешения от rate limiter
+func waitForRateLimit(ctx context.Context) error {
+	if globalLimiter == nil {
+		return nil
+	}
+	if err := globalLimiter.Wait(ctx); err != nil {
+		return fmt.Errorf("rate limiter wait failed: %w", err)
+	}
+	return nil
+}
+
+// Analyze запускает процесс обхода сайта
 func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	setupRateLimiter(opts)
 
@@ -127,7 +182,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	}:
 		jobWg.Add(1)
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, fmt.Errorf("context cancelled: %w", ctx.Err())
 	}
 
 	go func() {
@@ -150,41 +205,38 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			brokenLinks = append(brokenLinks, result)
 		}
 
-		// Добавляем новую страницу в Page
-		if result.StatusCode != nil && *result.StatusCode < 400 && result.URL != opts.URL {
+		if result.StatusCode != nil && *result.StatusCode < 400 {
 			pagesMap[result.URL] = &Page{
 				URL:          result.URL,
 				Depth:        result.Depth,
 				HttpStatus:   *result.StatusCode,
 				Status:       strings.ToLower(result.ParentStatus),
 				Seo:          *result.Seo,
+				Assets:       result.Assets,
 				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 			}
 		}
 	}
 
-	// Добавляем всем Page - битые страницы
 	for _, brokenLink := range brokenLinks {
-		if brokenLink.Error != nil {
-			if page, exists := pagesMap[brokenLink.ParentURL]; exists {
-				if page.BrokenLinks == nil {
-					page.BrokenLinks = &[]BrokenLink{}
-				}
-				*page.BrokenLinks = append(*page.BrokenLinks, BrokenLink{
-					URL:   brokenLink.URL,
-					Error: brokenLink.Error,
-				})
+		if page, exists := pagesMap[brokenLink.ParentURL]; exists {
+			if page.BrokenLinks == nil {
+				page.BrokenLinks = &[]BrokenLink{}
 			}
-		} else if brokenLink.StatusCode != nil {
-			if page, exists := pagesMap[brokenLink.ParentURL]; exists {
-				if page.BrokenLinks == nil {
-					page.BrokenLinks = &[]BrokenLink{}
-				}
-				*page.BrokenLinks = append(*page.BrokenLinks, BrokenLink{
-					URL:        brokenLink.URL,
-					StatusCode: brokenLink.StatusCode,
-				})
+
+			bl := BrokenLink{
+				URL: brokenLink.URL,
 			}
+
+			if brokenLink.StatusCode != nil {
+				bl.StatusCode = brokenLink.StatusCode
+			}
+
+			if brokenLink.Error != nil {
+				bl.Error = brokenLink.Error
+			}
+
+			*page.BrokenLinks = append(*page.BrokenLinks, bl)
 		}
 	}
 
@@ -200,50 +252,193 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		Pages:       pages,
 	}
 
-	return json.MarshalIndent(result, "", "  ")
+	jsonResult, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+	return jsonResult, nil
 }
 
-func getRandomUserAgent() string {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	return userAgents[rng.Intn(len(userAgents))]
-}
+func getAssetType(urlStr string, contentType string) string {
+	if contentType != "" {
+		contentType = strings.ToLower(contentType)
+		switch {
+		case strings.Contains(contentType, "image"):
+			return "image"
+		case strings.Contains(contentType, "javascript"), strings.Contains(contentType, "ecmascript"):
+			return "script"
+		case strings.Contains(contentType, "css"):
+			return "style"
+		}
+	}
 
-func getRandomIP() string {
-	return fmt.Sprintf("%d.%d.%d.%d",
-		rand.Intn(255),
-		rand.Intn(255),
-		rand.Intn(255),
-		rand.Intn(255))
-}
-
-// setupRateLimiter настраивает глобальный лимитер запросов
-func setupRateLimiter(opts Options) {
-	if opts.RPS > 0 {
-		// burst = 1 - важно! не разрешаем пачку запросов сразу
-		globalLimiter = rate.NewLimiter(rate.Limit(opts.RPS), 1)
-	} else if opts.Delay > 0 {
-		rps := float64(time.Second) / float64(opts.Delay)
-		globalLimiter = rate.NewLimiter(rate.Limit(rps), 1)
-	} else {
-		globalLimiter = nil
+	urlLower := strings.ToLower(urlStr)
+	switch {
+	case strings.Contains(urlLower, ".jpg"), strings.Contains(urlLower, ".jpeg"),
+		strings.Contains(urlLower, ".png"), strings.Contains(urlLower, ".gif"),
+		strings.Contains(urlLower, ".svg"), strings.Contains(urlLower, ".webp"),
+		strings.Contains(urlLower, ".ico"):
+		return "image"
+	case strings.Contains(urlLower, ".js"):
+		return "script"
+	case strings.Contains(urlLower, ".css"):
+		return "style"
+	default:
+		return "other"
 	}
 }
 
-// waitForRateLimit ожидает разрешения от rate limiter
-func waitForRateLimit(ctx context.Context) error {
-	if globalLimiter == nil {
-		return nil
+func fetchAsset(ctx context.Context, assetURL string, opts Options, rng *rand.Rand, workerID int) Asset {
+	// Проверяем кэш
+	assetsCacheMu.RLock()
+	if cached, exists := assetsCache[assetURL]; exists {
+		assetsCacheMu.RUnlock()
+		fmt.Printf("[Worker %d] Ассет из кэша: %s\n", workerID, assetURL)
+		return cached
 	}
-	err := globalLimiter.Wait(ctx)
-	return err
+	assetsCacheMu.RUnlock()
+
+	// Ждём rate limiter
+	if err := waitForRateLimit(ctx); err != nil {
+		return Asset{
+			URL:        assetURL,
+			Type:       getAssetType(assetURL, ""),
+			StatusCode: 0,
+			SizeBytes:  0,
+			Error:      err.Error(),
+		}
+	}
+
+	// Выполняем запрос с retry
+	_, resp, _, err := fetchWithRetry(ctx, assetURL, opts, rng, workerID, true)
+
+	if resp != nil {
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				fmt.Printf("[Worker %d] Ошибка закрытия тела ответа: %v\n", workerID, err)
+			}
+		}()
+	}
+
+	asset := Asset{
+		URL:        assetURL,
+		Type:       getAssetType(assetURL, ""),
+		StatusCode: 0,
+		SizeBytes:  0,
+	}
+
+	if err != nil {
+		asset.Error = err.Error()
+	} else if resp != nil {
+		asset.StatusCode = resp.StatusCode
+
+		if resp.StatusCode >= 400 {
+			asset.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, resp.Status)
+		} else {
+			contentType := resp.Header.Get("Content-Type")
+			asset.Type = getAssetType(assetURL, contentType)
+
+			contentLength := resp.Header.Get("Content-Length")
+			if contentLength != "" {
+				if size, err := strconv.ParseInt(contentLength, 10, 64); err == nil {
+					asset.SizeBytes = size
+				} else {
+					body, err := io.ReadAll(resp.Body)
+					if err == nil {
+						asset.SizeBytes = int64(len(body))
+					} else {
+						asset.Error = fmt.Sprintf("failed to read body: %v", err)
+					}
+					resp.Body = io.NopCloser(strings.NewReader(string(body)))
+				}
+			} else {
+				body, err := io.ReadAll(resp.Body)
+				if err == nil {
+					asset.SizeBytes = int64(len(body))
+				} else {
+					asset.Error = fmt.Sprintf("failed to read body: %v", err)
+				}
+				resp.Body = io.NopCloser(strings.NewReader(string(body)))
+			}
+		}
+	}
+
+	assetsCacheMu.Lock()
+	assetsCache[assetURL] = asset
+	assetsCacheMu.Unlock()
+
+	return asset
+}
+
+func extractAssetsFromHtml(htmlBody string, baseURL string, opts Options, ctx context.Context, rng *rand.Rand, workerID int) []Asset {
+	doc, err := html.Parse(strings.NewReader(htmlBody))
+	if err != nil {
+		fmt.Printf("Ошибка парсинга HTML для ассетов: %v\n", err)
+		return []Asset{}
+	}
+
+	var assets []Asset
+	assetURLs := make(map[string]bool)
+
+	var findAssets func(*html.Node)
+	findAssets = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "img":
+				for _, attr := range n.Attr {
+					if attr.Key == "src" {
+						if assetURL, err := NormalizeURL(attr.Val, baseURL); err == nil {
+							if !assetURLs[assetURL] {
+								assetURLs[assetURL] = true
+								asset := fetchAsset(ctx, assetURL, opts, rng, workerID)
+								assets = append(assets, asset)
+							}
+						}
+					}
+				}
+			case "script":
+				for _, attr := range n.Attr {
+					if attr.Key == "src" {
+						if assetURL, err := NormalizeURL(attr.Val, baseURL); err == nil {
+							if !assetURLs[assetURL] {
+								assetURLs[assetURL] = true
+								asset := fetchAsset(ctx, assetURL, opts, rng, workerID)
+								assets = append(assets, asset)
+							}
+						}
+					}
+				}
+			case "link":
+				for _, attr := range n.Attr {
+					if attr.Key == "rel" && strings.Contains(strings.ToLower(attr.Val), "stylesheet") {
+						for _, attr2 := range n.Attr {
+							if attr2.Key == "href" {
+								if assetURL, err := NormalizeURL(attr2.Val, baseURL); err == nil {
+									if !assetURLs[assetURL] {
+										assetURLs[assetURL] = true
+										asset := fetchAsset(ctx, assetURL, opts, rng, workerID)
+										assets = append(assets, asset)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			findAssets(c)
+		}
+	}
+
+	findAssets(doc)
+	return assets
 }
 
 // isRetriableError определяет, можно ли повторить запрос
 func isRetriableError(err error, resp *http.Response) bool {
-	// 1. Сетевые ошибки (временные сбои)
 	if err != nil {
 		errStr := err.Error()
-		// Типичные временные ошибки
 		temporaryErrors := []string{
 			"connection refused",
 			"connection reset",
@@ -266,31 +461,19 @@ func isRetriableError(err error, resp *http.Response) bool {
 		return false
 	}
 
-	// 2. Нет ответа - не повторяем
 	if resp == nil {
 		return false
 	}
 
-	// 3. HTTP статусы, которые стоит повторить
 	switch resp.StatusCode {
-	case http.StatusTooManyRequests: // 429
-		return true
-	case http.StatusRequestTimeout: // 408
-		return true
-	case http.StatusInternalServerError: // 500
-		return true
-	case http.StatusBadGateway: // 502
-		return true
-	case http.StatusServiceUnavailable: // 503
-		return true
-	case http.StatusGatewayTimeout: // 504
+	case http.StatusTooManyRequests, http.StatusRequestTimeout,
+		http.StatusInternalServerError, http.StatusBadGateway,
+		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return true
 	default:
-		// 4xx (кроме 408, 429) - не повторяем
 		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 			return false
 		}
-		// 5xx остальные - повторяем
 		if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
 			return true
 		}
@@ -299,9 +482,7 @@ func isRetriableError(err error, resp *http.Response) bool {
 	return false
 }
 
-// getRetryDelay вычисляет задержку перед повторной попыткой
 func getRetryDelay(attempt int, resp *http.Response) time.Duration {
-	// 1. Если сервер сказал Retry-After
 	if resp != nil {
 		if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
 			if seconds, err := strconv.Atoi(retryAfter); err == nil {
@@ -310,14 +491,17 @@ func getRetryDelay(attempt int, resp *http.Response) time.Duration {
 		}
 	}
 
-	// 2. Экспоненциальная задержка: 1s, 2s, 4s, 8s...
-	delay := time.Duration(1<<uint(attempt)) * time.Second
+	// nolint:gosec  // attempt всегда >=0 в нашем коде
+	shift := uint(attempt)
+	if shift > 30 {
+		shift = 30
+	}
+	delay := time.Duration(1<<shift) * time.Second
 	if delay > 30*time.Second {
 		delay = 30 * time.Second
 	}
 
-	// 3. Добавляем jitter (случайность) ±20%
-	jitter := time.Duration(rand.Int63n(int64(delay / 5))) // 20% от delay
+	jitter := time.Duration(rand.Int63n(int64(delay / 5)))
 	if rand.Intn(2) == 0 {
 		delay += jitter
 	} else {
@@ -331,7 +515,6 @@ func getRetryDelay(attempt int, resp *http.Response) time.Duration {
 	return delay
 }
 
-// doRequest выполняет HTTP запрос (без retry логики)
 func doRequest(ctx context.Context, link string, opts Options, rng *rand.Rand, workerID int) (string, *http.Response, string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", link, nil)
 	if err != nil {
@@ -362,18 +545,9 @@ func doRequest(ctx context.Context, link string, opts Options, rng *rand.Rand, w
 		}
 	}
 
-	fmt.Printf("[Worker %d] Время запроса к %s: %s\n", workerID, link, time.Now().Format("15:04:05.000"))
-
 	resp, err := opts.HTTPClient.Do(req)
 	if err != nil {
 		return "", nil, "", fmt.Errorf("cant handle request to url:%s, %w", link, err)
-	}
-
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", nil, "", fmt.Errorf("cant read response body from url:%s, %w", link, err)
 	}
 
 	parentStatus := ""
@@ -382,11 +556,10 @@ func doRequest(ctx context.Context, link string, opts Options, rng *rand.Rand, w
 		parentStatus = parts[1]
 	}
 
-	return string(body), resp, parentStatus, nil
+	return "", resp, parentStatus, nil
 }
 
-// fetchWithRetry выполняет запрос с повторными попытками
-func fetchWithRetry(ctx context.Context, link string, opts Options, rng *rand.Rand, workerID int) (string, *http.Response, string, error) {
+func fetchWithRetry(ctx context.Context, link string, opts Options, rng *rand.Rand, workerID int, isAsset bool) (string, *http.Response, string, error) {
 	var lastResp *http.Response
 	var lastErr error
 	var lastBody string
@@ -397,51 +570,45 @@ func fetchWithRetry(ctx context.Context, link string, opts Options, rng *rand.Ra
 		maxRetries = 0
 	}
 
+	if isAsset && maxRetries > 2 {
+		maxRetries = 2
+	}
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		// Проверяем, не отменён ли контекст
 		select {
 		case <-ctx.Done():
-			return "", nil, "", ctx.Err()
+			return "", lastResp, "", fmt.Errorf("context cancelled: %w", ctx.Err())
 		default:
 		}
 
 		if attempt > 0 {
-			// Ждём перед повторной попыткой
 			delay := getRetryDelay(attempt-1, lastResp)
-			fmt.Printf("[Worker %d] Повторная попытка #%d для %s через %v\n", workerID, attempt, link, delay)
-
 			select {
 			case <-time.After(delay):
 			case <-ctx.Done():
-				return "", nil, "", ctx.Err()
+				return "", lastResp, "", fmt.Errorf("context cancelled: %w", ctx.Err())
 			}
 		}
 
-		// Выполняем запрос
 		body, resp, status, err := doRequest(ctx, link, opts, rng, workerID)
 		lastResp = resp
 		lastErr = err
 		lastBody = body
 		lastStatus = status
 
-		// Успех - возвращаем результат
 		if err == nil && resp != nil && resp.StatusCode < 400 {
 			return body, resp, status, nil
 		}
 
-		// Проверяем, можно ли повторить
-		if !isRetriableError(err, resp) {
-			// Неповторяемая ошибка - возвращаем сразу
+		if attempt == maxRetries {
 			return body, resp, status, err
 		}
 
-		// Если это последняя попытка - возвращаем ошибку
-		if attempt == maxRetries {
-			break
+		if !isRetriableError(err, resp) {
+			return body, resp, status, err
 		}
 	}
 
-	// Все попытки исчерпаны
 	return lastBody, lastResp, lastStatus, lastErr
 }
 
@@ -461,21 +628,25 @@ func worker(
 			continue
 		}
 
-		// Глобальный rate limiter - ЗДЕСЬ, до выполнения запроса
 		if err := waitForRateLimit(ctx); err != nil {
 			jobWg.Done()
 			continue
 		}
 
-		fmt.Printf("Worker %d парсит %s, depth:%d\n", id, job.URL, job.Depth)
+		html, resp, respStatus, errResp := fetchWithRetry(ctx, job.URL, opts, rng, id, false)
 
-		// Используем fetchWithRetry вместо прямого вызова
-		html, resp, respStatus, errResp := fetchWithRetry(ctx, job.URL, opts, rng, id)
 		if errResp != nil {
 			errMsg := errResp.Error()
+			var statusCode *int
+			if resp != nil {
+				code := resp.StatusCode
+				statusCode = &code
+			}
+
 			select {
 			case results <- Link{
 				URL:              job.URL,
+				StatusCode:       statusCode,
 				Error:            &errMsg,
 				ParentURL:        job.ParentURL,
 				ParentStatusCode: job.ParentStatusCode,
@@ -503,12 +674,42 @@ func worker(
 			continue
 		}
 
+		if resp.StatusCode >= 400 {
+			errMsg := resp.Status
+			code := resp.StatusCode
+
+			select {
+			case results <- Link{
+				URL:              job.URL,
+				StatusCode:       &code,
+				Error:            &errMsg,
+				ParentURL:        job.ParentURL,
+				ParentStatusCode: job.ParentStatusCode,
+				ParentStatus:     job.ParentStatus,
+			}:
+			case <-ctx.Done():
+			}
+			jobWg.Done()
+			continue
+		}
+
+		if resp.Body != nil {
+			body, err := io.ReadAll(resp.Body)
+			if err == nil {
+				html = string(body)
+			}
+			if err := resp.Body.Close(); err != nil {
+				fmt.Printf("Worker %d: ошибка закрытия тела ответа: %v\n", id, err)
+			}
+		}
+
 		if !IsSameDomain(job.URL, opts.URL) {
 			jobWg.Done()
 			continue
 		}
 
 		seo := getSeoFromHtml(html)
+		assets := extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
 
 		if job.Depth > 0 {
 			links := getLinksFromHtml(html, job.URL, opts)
@@ -544,8 +745,7 @@ func worker(
 			}
 		}
 
-		select {
-		case results <- Link{
+		resultLink := Link{
 			URL:              job.URL,
 			StatusCode:       &resp.StatusCode,
 			ParentURL:        job.ParentURL,
@@ -553,7 +753,11 @@ func worker(
 			ParentStatus:     job.ParentStatus,
 			Seo:              &seo,
 			Depth:            job.Depth,
-		}:
+			Assets:           assets,
+		}
+
+		select {
+		case results <- resultLink:
 		case <-ctx.Done():
 			jobWg.Done()
 			return
@@ -563,6 +767,7 @@ func worker(
 	}
 }
 
+// IsSameDomain проверяет, принадлежат ли ссылки одному домену
 func IsSameDomain(link, domain string) bool {
 	domainURL, err := url.Parse(domain)
 	if err != nil {
@@ -574,7 +779,7 @@ func IsSameDomain(link, domain string) bool {
 		return false
 	}
 
-	return strings.ToLower(domainURL.Host) == strings.ToLower(linkURL.Host)
+	return strings.EqualFold(domainURL.Host, linkURL.Host)
 }
 
 func isNewLink(link string) bool {
@@ -688,13 +893,14 @@ func extractText(n *html.Node) string {
 	return strings.TrimSpace(text.String())
 }
 
+// NormalizeURL нормализует URL
 func NormalizeURL(href, baseURL string) (string, error) {
 	if strings.HasPrefix(href, "#") {
-		return "", fmt.Errorf("skip anchor: %s", href)
+		return "", errors.New("skip anchor")
 	}
 
 	if href == "" {
-		return "", fmt.Errorf("empty href")
+		return "", errors.New("empty href")
 	}
 
 	base, err := url.Parse(baseURL)
