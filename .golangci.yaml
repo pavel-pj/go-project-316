@@ -5,11 +5,9 @@ run:
   modules-download-mode: readonly
 
 linters:
-  disable-all: true  # отключаем все линтеры по умолчанию
   enable:
     - govet
     - staticcheck
-    # - errcheck  # закомментирован, но нужно явно отключить
     - unused
     - ineffassign
     - bodyclose
@@ -19,4 +17,10 @@ linters:
     - errorlint
     - nilerr
     - wrapcheck
- 
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - bodyclose
