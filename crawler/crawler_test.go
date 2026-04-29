@@ -64,11 +64,11 @@ func TestJSONOutputFormat(t *testing.T) {
 	}
 
 	opts := Options{
-		URL:        server.URL,
-		Depth:      1,
-		HTTPClient: httpClient,
-		Retries:    1,
-		Workers:    1,
+		URL:         server.URL,
+		Depth:       1,
+		HTTPClient:  httpClient,
+		Retries:     1,
+		Concurrency: 1,
 	}
 
 	ctx := context.Background()
@@ -206,11 +206,11 @@ func TestCompareWithGolden(t *testing.T) {
 	}
 
 	opts := Options{
-		URL:        server.URL,
-		Depth:      1,
-		HTTPClient: httpClient,
-		Retries:    1,
-		Workers:    1,
+		URL:         server.URL,
+		Depth:       1,
+		HTTPClient:  httpClient,
+		Retries:     1,
+		Concurrency: 1,
 	}
 
 	ctx := context.Background()
@@ -340,11 +340,11 @@ func TestRetryBehavior(t *testing.T) {
 	}
 
 	opts := Options{
-		URL:        server.URL,
-		Depth:      1,
-		HTTPClient: httpClient,
-		Retries:    2,
-		Workers:    1,
+		URL:         server.URL,
+		Depth:       1,
+		HTTPClient:  httpClient,
+		Retries:     2,
+		Concurrency: 1,
 	}
 
 	ctx := context.Background()
@@ -391,11 +391,11 @@ func TestRetryExhausted(t *testing.T) {
 	}
 
 	opts := Options{
-		URL:        server.URL,
-		Depth:      1,
-		HTTPClient: httpClient,
-		Retries:    2,
-		Workers:    1,
+		URL:         server.URL,
+		Depth:       1,
+		HTTPClient:  httpClient,
+		Retries:     2,
+		Concurrency: 1,
 	}
 
 	ctx := context.Background()
@@ -455,11 +455,11 @@ func TestAssetCache(t *testing.T) {
 	}
 
 	opts := Options{
-		URL:        server.URL,
-		Depth:      1,
-		HTTPClient: httpClient,
-		Retries:    0,
-		Workers:    1,
+		URL:         server.URL,
+		Depth:       1,
+		HTTPClient:  httpClient,
+		Retries:     0,
+		Concurrency: 1,
 	}
 
 	ctx := context.Background()
@@ -504,11 +504,11 @@ func TestMissingContentLength(t *testing.T) {
 	}
 
 	opts := Options{
-		URL:        server.URL,
-		Depth:      1,
-		HTTPClient: httpClient,
-		Retries:    0,
-		Workers:    1,
+		URL:         server.URL,
+		Depth:       1,
+		HTTPClient:  httpClient,
+		Retries:     0,
+		Concurrency: 1,
 	}
 
 	ctx := context.Background()
@@ -560,10 +560,10 @@ func TestCLIOutputFormat(t *testing.T) {
 	}
 
 	opts := Options{
-		URL:        server.URL,
-		Depth:      0,
-		HTTPClient: httpClient,
-		Workers:    1,
+		URL:         server.URL,
+		Depth:       0,
+		HTTPClient:  httpClient,
+		Concurrency: 1,
 	}
 
 	ctx := context.Background()
