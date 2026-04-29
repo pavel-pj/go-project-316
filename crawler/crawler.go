@@ -133,7 +133,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				Depth:        result.Depth,
 				HttpStatus:   *result.StatusCode,
 				Status:       strings.ToLower(result.ParentStatus),
-				Seo:          *result.Seo,
+				SEO:          *result.SEO,
 				Assets:       result.Assets,
 				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 			}
@@ -681,7 +681,7 @@ func worker(
 			ParentURL:        job.ParentURL,
 			ParentStatusCode: job.ParentStatusCode,
 			ParentStatus:     job.ParentStatus,
-			Seo:              &seo,
+			SEO:              &seo,
 			Depth:            job.Depth,
 			Assets:           assets,
 		}
@@ -750,18 +750,18 @@ func getLinksFromHtml(htmlBody string, baseURL string, opts Options) []string {
 	return links
 }
 
-func getSeoFromHtml(htmlBody string) Seo {
+func getSeoFromHtml(htmlBody string) SEO {
 	doc, err := html.Parse(strings.NewReader(htmlBody))
 	if err != nil {
 		fmt.Printf("Ошибка парсинга HTML: %v\n", err)
-		return Seo{
+		return SEO{
 			HasTitle:       false,
 			HasDescription: false,
 			HasH1:          false,
 		}
 	}
 
-	seo := Seo{
+	seo := SEO{
 		HasTitle:       false,
 		HasDescription: false,
 		HasH1:          false,

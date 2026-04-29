@@ -34,7 +34,7 @@ type Page struct {
 	HttpStatus   int           `json:"http_status"`
 	Status       string        `json:"status"`
 	BrokenLinks  *[]BrokenLink `json:"broken_links,omitempty"`
-	Seo          Seo           `json:"seo"`
+	SEO          SEO           `json:"seo"`
 	Assets       []Asset       `json:"assets,omitempty"`
 	DiscoveredAt string        `json:"discovered_at"`
 }
@@ -60,12 +60,12 @@ type Link struct {
 	ParentURL        string  `json:"parent_url,omitempty"`
 	ParentStatusCode int     `json:"parent_http_status,omitempty"`
 	ParentStatus     string  `json:"parent_status,omitempty"`
-	Seo              *Seo    `json:"seo,omitempty"`
+	SEO              *SEO    `json:"seo,omitempty"`
 	Depth            int     `json:"depth"`
 	Assets           []Asset `json:"assets,omitempty"`
 }
 
-type Seo struct {
+type SEO struct {
 	HasTitle       bool   `json:"has_title"`
 	Title          string `json:"title,omitempty"`
 	HasDescription bool   `json:"has_description"`

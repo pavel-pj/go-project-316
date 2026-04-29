@@ -113,19 +113,19 @@ func TestJSONOutputFormat(t *testing.T) {
 	}
 
 	// Проверяем SEO
-	if !homePage.Seo.HasTitle {
+	if !homePage.SEO.HasTitle {
 		t.Error("HasTitle = false, want true")
 	}
-	if homePage.Seo.Title != "Example title" {
-		t.Errorf("Title = %s, want Example title", homePage.Seo.Title)
+	if homePage.SEO.Title != "Example title" {
+		t.Errorf("Title = %s, want Example title", homePage.SEO.Title)
 	}
-	if !homePage.Seo.HasDescription {
+	if !homePage.SEO.HasDescription {
 		t.Error("HasDescription = false, want true")
 	}
-	if homePage.Seo.Description != "Example description" {
-		t.Errorf("Description = %s, want Example description", homePage.Seo.Description)
+	if homePage.SEO.Description != "Example description" {
+		t.Errorf("Description = %s, want Example description", homePage.SEO.Description)
 	}
-	if !homePage.Seo.HasH1 {
+	if !homePage.SEO.HasH1 {
 		t.Error("HasH1 = false, want true")
 	}
 
@@ -240,7 +240,7 @@ func TestCompareWithGolden(t *testing.T) {
 			Depth:        0, // Нормализуем depth в 0
 			HttpStatus:   page.HttpStatus,
 			Status:       "ok", // Нормализуем status в "ok"
-			Seo:          page.Seo,
+			SEO:          page.SEO,
 			Assets:       page.Assets,
 			DiscoveredAt: "2024-06-01T12:34:56Z",
 		}
@@ -288,7 +288,7 @@ func TestCompareWithGolden(t *testing.T) {
 						Error:      strPtr("Not Found"),
 					},
 				},
-				Seo: Seo{
+				SEO: SEO{
 					HasTitle:       true,
 					Title:          "Golden Test",
 					HasDescription: true,
