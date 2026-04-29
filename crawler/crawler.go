@@ -19,14 +19,16 @@ import (
 )
 
 type Options struct {
-	URL        string
-	Depth      int32
-	HTTPClient *http.Client
-	Delay      time.Duration
-	RPS        int
-	Retries    int
-	UserAgent  string
-	Workers    int
+	URL         string
+	Depth       int32
+	HTTPClient  *http.Client
+	Delay       time.Duration
+	RPS         int
+	Retries     int
+	UserAgent   string
+	Timeout     time.Duration
+	Concurrency int
+	IndentJSON  bool
 }
 
 type Root struct {
@@ -153,9 +155,10 @@ func waitForRateLimit(ctx context.Context) error {
 
 // Analyze запускает процесс обхода сайта
 func Analyze(ctx context.Context, opts Options) ([]byte, error) {
+
 	setupRateLimiter(opts)
 
-	workersCount := opts.Workers
+	workersCount := opts.Concurrency
 	if workersCount <= 0 {
 		workersCount = 4
 	}
@@ -252,7 +255,15 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		Pages:       pages,
 	}
 
-	jsonResult, err := json.MarshalIndent(result, "", "  ")
+	var jsonResult []byte
+	var err error
+
+	if opts.IndentJSON {
+		jsonResult, err = json.MarshalIndent(result, "", "  ")
+	} else {
+		jsonResult, err = json.Marshal(result)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal JSON: %w", err)
 	}

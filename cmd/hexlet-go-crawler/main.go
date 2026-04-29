@@ -37,7 +37,7 @@ func main() {
 			&cli.DurationFlag{
 				Name:  "timeout",
 				Usage: "per-request timeout",
-				Value: 15000000000,
+				Value: 0,
 			},
 			&cli.IntFlag{
 				Name:  "rps",
@@ -52,6 +52,11 @@ func main() {
 				Name:  "workers",
 				Usage: "number of concurrent workers",
 				Value: 4,
+			},
+			&cli.BoolFlag{
+				Name:  "indent",
+				Usage: "type of json",
+				Value: false,
 			},
 		},
 
@@ -69,14 +74,15 @@ func main() {
 			res, err := crawler.Analyze(
 				context.Background(),
 				crawler.Options{
-					URL:        args[0],
-					Depth:      int32(cmd.Int("depth")),
-					HTTPClient: httpClient,
-					Delay:      cmd.Duration("delay"),
-					RPS:        cmd.Int("rps"),
-					Retries:    cmd.Int("retries"),
-					UserAgent:  cmd.String("user-agent"),
-					Workers:    cmd.Int("workers"),
+					URL:         args[0],
+					Depth:       int32(cmd.Int("depth")),
+					HTTPClient:  httpClient,
+					Delay:       cmd.Duration("delay"),
+					RPS:         cmd.Int("rps"),
+					Retries:     cmd.Int("retries"),
+					UserAgent:   cmd.String("user-agent"),
+					Concurrency: cmd.Int("workers"),
+					IndentJSON:  cmd.Bool("indent"),
 				})
 			if err != nil {
 				return fmt.Errorf("%w", err)
