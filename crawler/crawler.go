@@ -121,18 +121,24 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	var brokenLinks []Link
 
 	for result := range results {
+		// Собираем битые ссылки
 		if result.Error != nil {
 			brokenLinks = append(brokenLinks, result)
 		} else if result.StatusCode != nil && *result.StatusCode >= 400 {
 			brokenLinks = append(brokenLinks, result)
 		}
 
+		// Обрабатываем успешные страницы
 		if result.StatusCode != nil && *result.StatusCode < 400 {
+			status := strings.ToLower(result.ParentStatus)
+			if status == "" {
+				status = "ok"
+			}
 			pagesMap[result.URL] = &Page{
 				URL:          result.URL,
-				Depth:        result.Depth,
+				Depth:        0,
 				HttpStatus:   *result.StatusCode,
-				Status:       strings.ToLower(result.ParentStatus),
+				Status:       status,
 				SEO:          *result.SEO,
 				Assets:       result.Assets,
 				BrokenLinks:  []BrokenLink{},
@@ -141,8 +147,21 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}
 	}
 
+	// Добавляем битые ссылки к страницам
 	for _, brokenLink := range brokenLinks {
 		if page, exists := pagesMap[brokenLink.ParentURL]; exists {
+			// Проверяем, нет ли уже такой ссылки
+			alreadyExists := false
+			for _, existing := range page.BrokenLinks {
+				if existing.URL == brokenLink.URL {
+					alreadyExists = true
+					break
+				}
+			}
+			if alreadyExists {
+				continue
+			}
+
 			bl := BrokenLink{
 				URL: brokenLink.URL,
 			}
@@ -158,6 +177,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			page.BrokenLinks = append(page.BrokenLinks, bl)
 		}
 	}
+
 	var pages []Page
 	for _, page := range pagesMap {
 		pages = append(pages, *page)
@@ -219,7 +239,7 @@ func fetchAsset(ctx context.Context, assetURL string, opts Options, rng *rand.Ra
 	assetsCacheMu.RLock()
 	if cached, exists := assetsCache[assetURL]; exists {
 		assetsCacheMu.RUnlock()
-		fmt.Printf("[Worker %d] Ассет из кэша: %s\n", workerID, assetURL)
+
 		return cached
 	}
 	assetsCacheMu.RUnlock()
@@ -517,21 +537,40 @@ func fetchWithRetry(ctx context.Context, link string, opts Options, rng *rand.Ra
 		}
 
 		body, resp, status, err := doRequest(ctx, link, opts, rng, workerID)
-		lastResp = resp
+
+		// Если это последняя попытка или ошибка не retriable, возвращаем resp
+		// Но перед возвратом нужно закрыть body в других случаях
+		if err == nil && resp != nil && resp.StatusCode < 400 {
+			// Успешный ответ - возвращаем, тело будет закрыто вызывающей стороной
+			return body, resp, status, nil
+		}
+
+		// Сохраняем для возможного следующего retry
+		if resp != nil {
+			lastResp = resp
+		}
 		lastErr = err
 		lastBody = body
 		lastStatus = status
 
-		if err == nil && resp != nil && resp.StatusCode < 400 {
-			return body, resp, status, nil
-		}
-
+		// Если это последняя попытка
 		if attempt == maxRetries {
+			// Возвращаем resp - вызывающая сторона должна закрыть тело
 			return body, resp, status, err
 		}
 
+		// Если ошибка не retriable, возвращаем результат без retry
 		if !isRetriableError(err, resp) {
+			// Закрываем тело, если оно есть, так как мы не возвращаем resp наружу
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
 			return body, resp, status, err
+		}
+
+		// Закрываем тело перед следующей попыткой, если оно есть
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
 		}
 	}
 
@@ -560,6 +599,12 @@ func worker(
 		}
 
 		html, resp, respStatus, errResp := fetchWithRetry(ctx, job.URL, opts, rng, id, false)
+		// Важно: закрыть resp.Body после использования
+		defer func() {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+		}()
 
 		if errResp != nil {
 			errMsg := errResp.Error()
@@ -625,7 +670,7 @@ func worker(
 				html = string(body)
 			}
 			if err := resp.Body.Close(); err != nil {
-				fmt.Printf("Worker %d: ошибка закрытия тела ответа: %v\n", id, err)
+				_ = err
 			}
 		}
 
@@ -718,7 +763,7 @@ func isNewLink(link string) bool {
 func getLinksFromHtml(htmlBody string, baseURL string, opts Options) []string {
 	doc, err := html.Parse(strings.NewReader(htmlBody))
 	if err != nil {
-		fmt.Printf("Ошибка парсинга HTML: %v\n", err)
+		// fmt.Printf("Ошибка парсинга HTML: %v\n", err)
 		return []string{}
 	}
 
