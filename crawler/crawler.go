@@ -261,7 +261,7 @@ func fetchAsset(ctx context.Context, assetURL string, opts Options, rng *rand.Ra
 	if resp != nil {
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
-				fmt.Printf("[Worker %d] Ошибка закрытия тела ответа: %v\n", workerID, err)
+				//fmt.Printf("[Worker %d] Ошибка закрытия тела ответа: %v\n", workerID, err)
 			}
 		}()
 	}
@@ -319,7 +319,7 @@ func fetchAsset(ctx context.Context, assetURL string, opts Options, rng *rand.Ra
 func extractAssetsFromHtml(htmlBody string, baseURL string, opts Options, ctx context.Context, rng *rand.Rand, workerID int) []Asset {
 	doc, err := html.Parse(strings.NewReader(htmlBody))
 	if err != nil {
-		fmt.Printf("Ошибка парсинга HTML для ассетов: %v\n", err)
+		//fmt.Printf("Ошибка парсинга HTML для ассетов: %v\n", err)
 		return []Asset{}
 	}
 
