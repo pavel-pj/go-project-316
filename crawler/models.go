@@ -48,9 +48,9 @@ type Asset struct {
 }
 
 type BrokenLink struct {
-	URL        string  `json:"url"`
-	StatusCode *int    `json:"status_code,omitempty"`
-	Error      *string `json:"error,omitempty"`
+	URL        string `json:"url"`
+	StatusCode int    `json:"status_code,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 type Link struct {

@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"bytes"
-
 	"context"
 	"encoding/json"
 	"fmt"
@@ -137,12 +136,12 @@ func TestJSONOutputFormat(t *testing.T) {
 		for _, bl := range homePage.BrokenLinks {
 			if strings.Contains(bl.URL, "/missing") {
 				foundMissing = true
-				if bl.StatusCode == nil || *bl.StatusCode != 404 {
-					t.Errorf("Missing page status_code = %v, want 404", bl.StatusCode)
+				if bl.StatusCode != 404 {
+					t.Errorf("Missing page status_code = %d, want 404", bl.StatusCode)
 				}
 				// Проверяем error (может быть "Not Found" или "404 Not Found")
-				if bl.Error == nil || (*bl.Error != "Not Found" && *bl.Error != "404 Not Found") {
-					t.Errorf("Missing page error = %v, want 'Not Found' or '404 Not Found'", *bl.Error)
+				if bl.Error != "Not Found" && bl.Error != "404 Not Found" {
+					t.Errorf("Missing page error = %s, want 'Not Found' or '404 Not Found'", bl.Error)
 				}
 				break
 			}
@@ -246,22 +245,22 @@ func TestCompareWithGolden(t *testing.T) {
 		}
 
 		// Нормализуем broken_links
-		if page.BrokenLinks != nil {
+		if len(page.BrokenLinks) > 0 {
 			normalizedLinks := make([]BrokenLink, len(page.BrokenLinks))
 			for j, bl := range page.BrokenLinks {
 				normalizedLinks[j] = BrokenLink{
 					URL: bl.URL,
 				}
-				if bl.StatusCode != nil {
+				if bl.StatusCode != 0 {
 					normalizedLinks[j].StatusCode = bl.StatusCode
 				}
 				// Нормализуем error: "404 Not Found" → "Not Found"
-				if bl.Error != nil {
-					errMsg := *bl.Error
+				if bl.Error != "" {
+					errMsg := bl.Error
 					if strings.Contains(errMsg, "404") {
 						errMsg = "Not Found"
 					}
-					normalizedLinks[j].Error = &errMsg
+					normalizedLinks[j].Error = errMsg
 				}
 			}
 			normalizedPage.BrokenLinks = normalizedLinks
@@ -284,8 +283,8 @@ func TestCompareWithGolden(t *testing.T) {
 				BrokenLinks: []BrokenLink{
 					{
 						URL:        server.URL + "/broken",
-						StatusCode: intPtr(404),
-						Error:      strPtr("Not Found"),
+						StatusCode: 404,
+						Error:      "Not Found",
 					},
 				},
 				SEO: SEO{
@@ -314,7 +313,6 @@ func TestCompareWithGolden(t *testing.T) {
 
 	if !jsonEqual(normalizedJSON, expectedJSON) {
 		t.Errorf("JSON output differs from expected\nGot:\n%s\nExpected:\n%s", normalizedJSON, expectedJSON)
-
 	}
 }
 
@@ -585,14 +583,6 @@ func TestCLIOutputFormat(t *testing.T) {
 }
 
 // Helper functions
-func intPtr(i int) *int {
-	return &i
-}
-
-func strPtr(s string) *string {
-	return &s
-}
-
 func min(a, b int) int {
 	if a < b {
 		return a

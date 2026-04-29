@@ -148,17 +148,16 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			}
 
 			if brokenLink.StatusCode != nil {
-				bl.StatusCode = brokenLink.StatusCode
+				bl.StatusCode = *brokenLink.StatusCode
 			}
 
 			if brokenLink.Error != nil {
-				bl.Error = brokenLink.Error
+				bl.Error = *brokenLink.Error
 			}
 
 			page.BrokenLinks = append(page.BrokenLinks, bl)
 		}
 	}
-
 	var pages []Page
 	for _, page := range pagesMap {
 		pages = append(pages, *page)
