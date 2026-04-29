@@ -135,6 +135,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				Status:       strings.ToLower(result.ParentStatus),
 				SEO:          *result.SEO,
 				Assets:       result.Assets,
+				BrokenLinks:  []BrokenLink{},
 				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 			}
 		}
@@ -142,10 +143,6 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	for _, brokenLink := range brokenLinks {
 		if page, exists := pagesMap[brokenLink.ParentURL]; exists {
-			if page.BrokenLinks == nil {
-				page.BrokenLinks = &[]BrokenLink{}
-			}
-
 			bl := BrokenLink{
 				URL: brokenLink.URL,
 			}
@@ -158,7 +155,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				bl.Error = brokenLink.Error
 			}
 
-			*page.BrokenLinks = append(*page.BrokenLinks, bl)
+			page.BrokenLinks = append(page.BrokenLinks, bl)
 		}
 	}
 

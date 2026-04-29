@@ -130,11 +130,11 @@ func TestJSONOutputFormat(t *testing.T) {
 	}
 
 	// Проверяем broken_links
-	if homePage.BrokenLinks == nil || len(*homePage.BrokenLinks) == 0 {
+	if homePage.BrokenLinks == nil {
 		t.Error("BrokenLinks is empty, expected missing page link")
 	} else {
 		foundMissing := false
-		for _, bl := range *homePage.BrokenLinks {
+		for _, bl := range homePage.BrokenLinks {
 			if strings.Contains(bl.URL, "/missing") {
 				foundMissing = true
 				if bl.StatusCode == nil || *bl.StatusCode != 404 {
@@ -247,8 +247,8 @@ func TestCompareWithGolden(t *testing.T) {
 
 		// Нормализуем broken_links
 		if page.BrokenLinks != nil {
-			normalizedLinks := make([]BrokenLink, len(*page.BrokenLinks))
-			for j, bl := range *page.BrokenLinks {
+			normalizedLinks := make([]BrokenLink, len(page.BrokenLinks))
+			for j, bl := range page.BrokenLinks {
 				normalizedLinks[j] = BrokenLink{
 					URL: bl.URL,
 				}
@@ -264,7 +264,7 @@ func TestCompareWithGolden(t *testing.T) {
 					normalizedLinks[j].Error = &errMsg
 				}
 			}
-			normalizedPage.BrokenLinks = &normalizedLinks
+			normalizedPage.BrokenLinks = normalizedLinks
 		}
 
 		normalized.Pages[i] = normalizedPage
@@ -281,7 +281,7 @@ func TestCompareWithGolden(t *testing.T) {
 				Depth:      0,
 				HttpStatus: 200,
 				Status:     "ok",
-				BrokenLinks: &[]BrokenLink{
+				BrokenLinks: []BrokenLink{
 					{
 						URL:        server.URL + "/broken",
 						StatusCode: intPtr(404),

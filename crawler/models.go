@@ -29,14 +29,14 @@ type Report struct {
 }
 
 type Page struct {
-	URL          string        `json:"url"`
-	Depth        int           `json:"depth"`
-	HttpStatus   int           `json:"http_status"`
-	Status       string        `json:"status"`
-	BrokenLinks  *[]BrokenLink `json:"broken_links,omitempty"`
-	SEO          SEO           `json:"seo"`
-	Assets       []Asset       `json:"assets,omitempty"`
-	DiscoveredAt string        `json:"discovered_at"`
+	URL          string       `json:"url"`
+	Depth        int          `json:"depth"`
+	HttpStatus   int          `json:"http_status"`
+	Status       string       `json:"status"`
+	BrokenLinks  []BrokenLink `json:"broken_links,omitempty"`
+	SEO          SEO          `json:"seo"`
+	Assets       []Asset      `json:"assets,omitempty"`
+	DiscoveredAt string       `json:"discovered_at"`
 }
 
 type Asset struct {
