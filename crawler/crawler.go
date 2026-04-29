@@ -31,7 +31,7 @@ type Options struct {
 	IndentJSON  bool
 }
 
-type Root struct {
+type Report struct {
 	RootURL     string `json:"root_url"`
 	Depth       int    `json:"depth"`
 	GeneratedAt string `json:"generated_at"`
@@ -248,7 +248,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		pages = append(pages, *page)
 	}
 
-	result := Root{
+	result := Report{
 		RootURL:     opts.URL,
 		Depth:       int(opts.Depth),
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),

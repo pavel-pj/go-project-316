@@ -78,7 +78,7 @@ func TestJSONOutputFormat(t *testing.T) {
 	}
 
 	// Парсим результат для проверки структуры
-	var result Root
+	var result Report
 	if err := json.Unmarshal(resultJSON, &result); err != nil {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
@@ -220,13 +220,13 @@ func TestCompareWithGolden(t *testing.T) {
 	}
 
 	// Парсим результат
-	var result Root
+	var result Report
 	if err := json.Unmarshal(resultJSON, &result); err != nil {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
 
 	// СОЗДАЁМ НОРМАЛИЗОВАННУЮ КОПИЮ для сравнения
-	normalized := Root{
+	normalized := Report{
 		RootURL:     result.RootURL,
 		Depth:       result.Depth,
 		GeneratedAt: "2024-06-01T12:34:56Z",
@@ -271,7 +271,7 @@ func TestCompareWithGolden(t *testing.T) {
 	}
 
 	// Создаём эталонный результат
-	expected := Root{
+	expected := Report{
 		RootURL:     server.URL,
 		Depth:       1,
 		GeneratedAt: "2024-06-01T12:34:56Z",
@@ -353,7 +353,7 @@ func TestRetryBehavior(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var result Root
+	var result Report
 	if err := json.Unmarshal(resultJSON, &result); err != nil {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
@@ -405,7 +405,7 @@ func TestRetryExhausted(t *testing.T) {
 	}
 
 	// Парсим результат (должна быть ошибка в отчёте)
-	var result Root
+	var result Report
 	if err := json.Unmarshal(resultJSON, &result); err != nil {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
@@ -517,7 +517,7 @@ func TestMissingContentLength(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var result Root
+	var result Report
 	if err := json.Unmarshal(resultJSON, &result); err != nil {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
