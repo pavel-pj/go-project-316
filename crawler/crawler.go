@@ -156,7 +156,6 @@ func worker(
 	opts Options,
 ) {
 
-	return
 	rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(id)))
 
 	for job := range jobs {
