@@ -3,7 +3,7 @@
 [![linter](https://github.com/pavel-pj/go-project-316/actions/workflows/linter.yml/badge.svg)](https://github.com/pavel-pj/go-project-316/actions/workflows/linter.yml)
 [![Tests](https://github.com/pavel-pj/go-project-316/actions/workflows/test.yml/badge.svg)](https://github.com/pavel-pj/go-project-316/actions/workflows/test.yml)
 
-# Sites Crawler (Golang)
+# Site's Crawler (Golang)
  Программа обходит страницы сайта с указанной глубиной и выводит результат в о битых ссылках и ассетах, в т.ч на сторонние ресурсы.
 
 #### Запуск :
