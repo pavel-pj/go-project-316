@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -136,7 +137,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			}
 			pagesMap[result.URL] = &Page{
 				URL:          result.URL,
-				Depth:        0,
+				Depth:        result.Depth,
 				HttpStatus:   *result.StatusCode,
 				Status:       status,
 				SEO:          *result.SEO,
@@ -182,6 +183,10 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	for _, page := range pagesMap {
 		pages = append(pages, *page)
 	}
+	// Sort by URL to ensure consistent order
+	sort.Slice(pages, func(i, j int) bool {
+		return pages[i].URL < pages[j].URL
+	})
 
 	result := Report{
 		RootURL:     opts.URL,
@@ -899,5 +904,12 @@ func NormalizeURL(href, baseURL string) (string, error) {
 		return "", fmt.Errorf("no host in URL: %s", resolved.String())
 	}
 
-	return resolved.String(), nil
+	result := resolved.String()
+
+	// Remove trailing slash for root URLs
+	if strings.HasSuffix(result, "/") && !strings.Contains(result[8:], "/") {
+		result = strings.TrimSuffix(result, "/")
+	}
+
+	return result, nil
 }
