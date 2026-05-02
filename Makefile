@@ -6,9 +6,13 @@ lint:
 	
 build:
 	go build -o bin/hexlet-go-crawler ./cmd/hexlet-go-crawler/main.go	
-	
+
 run:
-	go run cmd/hexlet-go-crawler/main.go --depth=5 --rps=10 --retries=2 --indent=true http://localhost:8888
+	go run cmd/hexlet-go-crawler/main.go $(URL)
+
+
+run2:
+	go run cmd/hexlet-go-crawler/main.go --depth=1 --rps=2 --retries=2 --indent=true http://example.com
 test:
 	go test -count=1 ./... -v
 	
