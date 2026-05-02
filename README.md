@@ -8,7 +8,7 @@
 
 #### Запуск :
 ```
-make Run --depth=4	URL=http://example.com
+make run URL=http://example.com
 ```
 
 #### Или прямой вызов команды:
