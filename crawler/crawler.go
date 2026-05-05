@@ -39,10 +39,13 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}(i)
 	}
 
+	// Normalize root URL
+	normalizedRoot, _ := NormalizeURL(opts.URL, opts.URL)
+
 	select {
 	case jobs <- Job{
-		URL:       opts.URL,
-		ParentURL: opts.URL,
+		URL:       normalizedRoot,
+		ParentURL: normalizedRoot,
 		Depth:     int(opts.Depth),
 	}:
 		jobWg.Add(1)
@@ -64,20 +67,20 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	var brokenLinks []Link
 
 	for result := range results {
-
+		// Normalize URL before processing
 		normalizedURL, err := NormalizeURL(result.URL, opts.URL)
 		if err == nil {
 			result.URL = normalizedURL
 		}
 
-		// Собираем битые ссылки
+		// Collect broken links
 		if result.Error != nil {
 			brokenLinks = append(brokenLinks, result)
 		} else if result.StatusCode != nil && *result.StatusCode >= 400 {
 			brokenLinks = append(brokenLinks, result)
 		}
 
-		// Обрабатываем успешные страницы
+		// Process successful pages (status code < 400)
 		if result.StatusCode != nil && *result.StatusCode < 400 {
 			status := strings.ToLower(result.ParentStatus)
 			if status == "" {
@@ -96,16 +99,25 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				seo.HasTitle = result.SEO.HasTitle
 				seo.Title = result.SEO.Title
 				seo.HasDescription = result.SEO.HasDescription
-				seo.Description = result.SEO.Description // ← Сохраняем
+				seo.Description = result.SEO.Description
 				seo.HasH1 = result.SEO.HasH1
 			}
 
+			// Calculate depth - root page is always depth 0
 			var pageDepth int
-			if result.URL == opts.URL {
-				// Корневая страница всегда depth = 0
+			if result.URL == normalizedRoot || strings.TrimSuffix(result.URL, "/") == strings.TrimSuffix(normalizedRoot, "/") {
 				pageDepth = 0
 			} else {
 				pageDepth = int(opts.Depth) - result.Depth
+				if pageDepth < 1 {
+					pageDepth = 1
+				}
+			}
+
+			// Ensure assets and broken links are initialized as empty slices
+			assets := result.Assets
+			if assets == nil {
+				assets = []Asset{}
 			}
 
 			pagesMap[result.URL] = &Page{
@@ -114,17 +126,20 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				HttpStatus:   *result.StatusCode,
 				Status:       status,
 				SEO:          seo,
-				Assets:       result.Assets,
+				Assets:       assets,
 				BrokenLinks:  []BrokenLink{},
 				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 			}
 		}
 	}
 
-	// Добавляем битые ссылки к страницам
+	// Add broken links to pages
 	for _, brokenLink := range brokenLinks {
-		if page, exists := pagesMap[brokenLink.ParentURL]; exists {
-			// Проверяем, нет ли уже такой ссылки
+		// Normalize parent URL
+		normalizedParent, _ := NormalizeURL(brokenLink.ParentURL, opts.URL)
+
+		if page, exists := pagesMap[normalizedParent]; exists {
+			// Check if link already exists
 			alreadyExists := false
 			for _, existing := range page.BrokenLinks {
 				if existing.URL == brokenLink.URL {
@@ -132,38 +147,35 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 					break
 				}
 			}
-			if alreadyExists {
-				continue
+			if !alreadyExists {
+				bl := BrokenLink{
+					URL: brokenLink.URL,
+				}
+				if brokenLink.StatusCode != nil {
+					bl.StatusCode = *brokenLink.StatusCode
+				}
+				if brokenLink.Error != nil {
+					bl.Error = *brokenLink.Error
+				}
+				page.BrokenLinks = append(page.BrokenLinks, bl)
 			}
-
-			bl := BrokenLink{
-				URL: brokenLink.URL,
-			}
-
-			if brokenLink.StatusCode != nil {
-				bl.StatusCode = *brokenLink.StatusCode
-			}
-
-			if brokenLink.Error != nil {
-				bl.Error = *brokenLink.Error
-			}
-
-			page.BrokenLinks = append(page.BrokenLinks, bl)
 		}
 	}
 
 	var pages []Page
 	for _, page := range pagesMap {
-
+		// Ensure Assets is never nil
 		if page.Assets == nil {
 			page.Assets = []Asset{}
 		}
 
+		// Ensure BrokenLinks is never nil
 		if page.BrokenLinks == nil {
 			page.BrokenLinks = []BrokenLink{}
 		}
 
-		if len(page.Assets) > 0 {
+		// Sort assets consistently: by type first, then by URL
+		if len(page.Assets) > 1 {
 			sort.Slice(page.Assets, func(i, j int) bool {
 				if page.Assets[i].Type != page.Assets[j].Type {
 					return page.Assets[i].Type < page.Assets[j].Type
@@ -171,9 +183,11 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				return page.Assets[i].URL < page.Assets[j].URL
 			})
 		}
+
 		pages = append(pages, *page)
 	}
 
+	// Sort pages by URL
 	sort.Slice(pages, func(i, j int) bool {
 		return pages[i].URL < pages[j].URL
 	})
@@ -210,6 +224,7 @@ func worker(
 ) {
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(id)))
+	normalizedRoot, _ := NormalizeURL(opts.URL, opts.URL)
 
 	for job := range jobs {
 		if job.Depth < 0 {
@@ -223,7 +238,7 @@ func worker(
 		}
 
 		html, resp, respStatus, errResp := fetchWithRetry(ctx, job.URL, opts, rng, id, false)
-		// Важно: закрыть resp.Body после использования
+		// Important: close resp.Body after use
 		defer func() {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -309,14 +324,17 @@ func worker(
 		if job.Depth > 0 {
 			links := getLinksFromHtml(html, job.URL, opts)
 			for _, link := range links {
-
 				validatedLink, err := NormalizeURL(link, opts.URL)
 				if err != nil {
 					continue
 				}
 
-				if isNewLink(validatedLink) {
+				// Skip adding root URL as a child page
+				if validatedLink == normalizedRoot {
+					continue
+				}
 
+				if isNewLink(validatedLink) {
 					visitedMu.Lock()
 					if _, exists := visited[validatedLink]; !exists {
 						visited[validatedLink] = struct{}{}
