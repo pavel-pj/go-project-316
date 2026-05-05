@@ -64,6 +64,12 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	var brokenLinks []Link
 
 	for result := range results {
+
+		normalizedURL, err := NormalizeURL(result.URL, opts.URL)
+		if err == nil {
+			result.URL = normalizedURL
+		}
+
 		// Собираем битые ссылки
 		if result.Error != nil {
 			brokenLinks = append(brokenLinks, result)
@@ -82,7 +88,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				HasTitle:       false,
 				Title:          "",
 				HasDescription: false,
-				Description:    "", // ← Всегда есть поле description
+				Description:    "",
 				HasH1:          false,
 			}
 
@@ -99,7 +105,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				// Корневая страница всегда depth = 0
 				pageDepth = 0
 			} else {
-				pageDepth = result.Depth
+				pageDepth = int(opts.Depth) - result.Depth
 			}
 
 			pagesMap[result.URL] = &Page{
@@ -149,8 +155,19 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	var pages []Page
 	for _, page := range pagesMap {
 
+		if page.Assets == nil {
+			page.Assets = []Asset{}
+		}
+
+		if page.BrokenLinks == nil {
+			page.BrokenLinks = []BrokenLink{}
+		}
+
 		if len(page.Assets) > 0 {
 			sort.Slice(page.Assets, func(i, j int) bool {
+				if page.Assets[i].Type != page.Assets[j].Type {
+					return page.Assets[i].Type < page.Assets[j].Type
+				}
 				return page.Assets[i].URL < page.Assets[j].URL
 			})
 		}
