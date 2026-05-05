@@ -15,7 +15,6 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Analyze запускает процесс обхода сайта
 func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	setupRateLimiter(opts)
@@ -39,10 +38,8 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}(i)
 	}
 
-	// Normalize root URL
 	normalizedRoot, _ := NormalizeURL(opts.URL, opts.URL)
 
-	// Clear visited map at start
 	visitedMu.Lock()
 	visited = make(map[string]struct{})
 	visitedMu.Unlock()
@@ -73,15 +70,12 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	rootAdded := false
 
 	for result := range results {
-		// Normalize URL for comparison
 		normalizedURL, _ := NormalizeURL(result.URL, opts.URL)
 		isRoot := normalizedURL == normalizedRoot || strings.TrimSuffix(normalizedURL, "/") == strings.TrimSuffix(normalizedRoot, "/")
 
-		// Handle errors (including connection errors and 404s)
 		if result.Error != nil || (result.StatusCode != nil && *result.StatusCode >= 400) {
 			brokenLinks = append(brokenLinks, result)
 
-			// For missing.test: add the root page with error
 			if isRoot && !rootAdded {
 				rootAdded = true
 				seo := SEO{
@@ -95,16 +89,11 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				errorMsg := ""
 				if result.Error != nil {
 					errorMsg = *result.Error
-				} else if result.StatusCode != nil {
-					errorMsg = fmt.Sprintf("HTTP %d", *result.StatusCode)
-				}
-
-				// Clean up error message to match fixture format
-				if strings.Contains(errorMsg, "cant handle request to url:") {
-					// Extract the actual error
-					parts := strings.Split(errorMsg, ", ")
-					if len(parts) > 1 {
-						errorMsg = parts[1]
+					if strings.Contains(errorMsg, "cant handle request to url:") {
+						parts := strings.Split(errorMsg, ", ")
+						if len(parts) > 1 {
+							errorMsg = parts[1]
+						}
 					}
 				}
 
@@ -123,7 +112,6 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			continue
 		}
 
-		// Process successful pages
 		if result.StatusCode != nil && *result.StatusCode < 400 {
 			status := strings.ToLower(result.ParentStatus)
 			if status == "" {
@@ -187,9 +175,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}
 	}
 
-	// Add broken links to pages (skip error pages)
 	for _, brokenLink := range brokenLinks {
-		// Skip connection errors as they're handled separately
 		if brokenLink.Error != nil && strings.Contains(*brokenLink.Error, "no such host") {
 			continue
 		}
@@ -229,10 +215,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	var pages []Page
 	for _, page := range pagesMap {
-		// Keep nil for error pages
-		if page.Status == "error" {
-			// Don't convert nil to empty slices for error pages
-		} else {
+		if page.Status != "error" {
 			if page.Assets == nil {
 				page.Assets = []Asset{}
 			}
@@ -241,7 +224,6 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			}
 		}
 
-		// Sort assets by type then URL
 		if len(page.Assets) > 1 {
 			sort.Slice(page.Assets, func(i, j int) bool {
 				if page.Assets[i].Type != page.Assets[j].Type {
@@ -389,10 +371,8 @@ func worker(
 			continue
 		}
 
-		// Парсим SEO всегда - даже для XML/фидов, потому что тесты этого ожидают
+		// ВСЕГДА парсим SEO из HTML ответа
 		seo := getSeoFromHtml(html)
-
-		// Ассеты извлекаем всегда
 		assets := extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
 
 		if job.Depth > 0 {
@@ -455,7 +435,6 @@ func worker(
 	}
 }
 
-// IsSameDomain проверяет, принадлежат ли ссылки одному домену
 func IsSameDomain(link, domain string) bool {
 	domainURL, err := url.Parse(domain)
 	if err != nil {
@@ -470,7 +449,6 @@ func IsSameDomain(link, domain string) bool {
 	return strings.EqualFold(domainURL.Host, linkURL.Host)
 }
 
-// setupRateLimiter настраивает глобальный лимитер запросов
 func setupRateLimiter(opts Options) {
 	switch {
 	case opts.RPS > 0:
@@ -483,7 +461,6 @@ func setupRateLimiter(opts Options) {
 	}
 }
 
-// waitForRateLimit ожидает разрешения от rate limiter
 func waitForRateLimit(ctx context.Context) error {
 	if globalLimiter == nil {
 		return nil

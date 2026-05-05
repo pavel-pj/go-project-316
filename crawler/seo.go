@@ -12,7 +12,6 @@ import (
 func getSeoFromHtml(htmlBody string) SEO {
 	doc, err := html.Parse(strings.NewReader(htmlBody))
 	if err != nil {
-		fmt.Printf("Ошибка парсинга HTML: %v\n", err)
 		return SEO{
 			HasTitle:       false,
 			Title:          "",
@@ -71,7 +70,7 @@ func getSeoFromHtml(htmlBody string) SEO {
 
 	findElements(doc)
 
-	// Always ensure Title field exists (even if empty)
+	// Гарантируем, что Title всегда есть (даже пустой)
 	if !seo.HasTitle {
 		seo.Title = ""
 	}
@@ -92,7 +91,6 @@ func extractText(n *html.Node) string {
 	return strings.TrimSpace(text.String())
 }
 
-// NormalizeURL нормализует URL
 func NormalizeURL(href, baseURL string) (string, error) {
 	if strings.HasPrefix(href, "#") {
 		return "", errors.New("skip anchor")
