@@ -398,7 +398,7 @@ func worker(
 			seo = getSeoFromHtml(html)
 			assets = extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
 		} else {
-			// Для не-HTML контента (XML, RSS, JSON, изображения и т.д.)
+			// Для не-HTML контента (XML, RSS, JSON и т.д.)
 			seo = SEO{
 				HasTitle:       false,
 				Title:          "",
