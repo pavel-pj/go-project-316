@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -76,12 +77,29 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			if status == "" {
 				status = "ok"
 			}
+
+			seo := SEO{
+				HasTitle:       false,
+				Title:          "",
+				HasDescription: false,
+				Description:    "", // ← Всегда есть поле description
+				HasH1:          false,
+			}
+
+			if result.SEO != nil {
+				seo.HasTitle = result.SEO.HasTitle
+				seo.Title = result.SEO.Title
+				seo.HasDescription = result.SEO.HasDescription
+				seo.Description = result.SEO.Description // ← Сохраняем
+				seo.HasH1 = result.SEO.HasH1
+			}
+
 			pagesMap[result.URL] = &Page{
 				URL:          result.URL,
-				Depth:        0,
+				Depth:        result.Depth,
 				HttpStatus:   *result.StatusCode,
 				Status:       status,
-				SEO:          *result.SEO,
+				SEO:          seo,
 				Assets:       result.Assets,
 				BrokenLinks:  []BrokenLink{},
 				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
@@ -122,8 +140,18 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	var pages []Page
 	for _, page := range pagesMap {
+
+		if len(page.Assets) > 0 {
+			sort.Slice(page.Assets, func(i, j int) bool {
+				return page.Assets[i].URL < page.Assets[j].URL
+			})
+		}
 		pages = append(pages, *page)
 	}
+
+	sort.Slice(pages, func(i, j int) bool {
+		return pages[i].URL < pages[j].URL
+	})
 
 	result := Report{
 		RootURL:     opts.URL,

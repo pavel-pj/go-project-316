@@ -15,14 +15,18 @@ func getSeoFromHtml(htmlBody string) SEO {
 		fmt.Printf("Ошибка парсинга HTML: %v\n", err)
 		return SEO{
 			HasTitle:       false,
+			Title:          "",
 			HasDescription: false,
+			Description:    "",
 			HasH1:          false,
 		}
 	}
 
 	seo := SEO{
 		HasTitle:       false,
+		Title:          "",
 		HasDescription: false,
+		Description:    "", // ← Всегда инициализируем
 		HasH1:          false,
 	}
 
