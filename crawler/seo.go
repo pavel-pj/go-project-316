@@ -26,7 +26,7 @@ func getSeoFromHtml(htmlBody string) SEO {
 		HasTitle:       false,
 		Title:          "",
 		HasDescription: false,
-		Description:    "", // ← Всегда инициализируем
+		Description:    "",
 		HasH1:          false,
 	}
 
@@ -70,6 +70,12 @@ func getSeoFromHtml(htmlBody string) SEO {
 	}
 
 	findElements(doc)
+
+	// Always ensure Title field exists (even if empty)
+	if !seo.HasTitle {
+		seo.Title = ""
+	}
+
 	return seo
 }
 
