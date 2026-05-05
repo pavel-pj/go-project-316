@@ -94,9 +94,17 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				seo.HasH1 = result.SEO.HasH1
 			}
 
+			var pageDepth int
+			if result.URL == opts.URL {
+				// Корневая страница всегда depth = 0
+				pageDepth = 0
+			} else {
+				pageDepth = result.Depth
+			}
+
 			pagesMap[result.URL] = &Page{
 				URL:          result.URL,
-				Depth:        result.Depth,
+				Depth:        pageDepth,
 				HttpStatus:   *result.StatusCode,
 				Status:       status,
 				SEO:          seo,
@@ -284,15 +292,17 @@ func worker(
 		if job.Depth > 0 {
 			links := getLinksFromHtml(html, job.URL, opts)
 			for _, link := range links {
-				if isNewLink(link) {
-					validatedLink, err := NormalizeURL(link, opts.URL)
-					if err != nil {
-						continue
-					}
+
+				validatedLink, err := NormalizeURL(link, opts.URL)
+				if err != nil {
+					continue
+				}
+
+				if isNewLink(validatedLink) {
 
 					visitedMu.Lock()
-					if _, exists := visited[link]; !exists {
-						visited[link] = struct{}{}
+					if _, exists := visited[validatedLink]; !exists {
+						visited[validatedLink] = struct{}{}
 						visitedMu.Unlock()
 
 						jobWg.Add(1)
