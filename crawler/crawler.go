@@ -310,7 +310,6 @@ func worker(
 		}
 
 		html, resp, respStatus, errResp := fetchWithRetry(ctx, job.URL, opts, rng, id, false)
-		// Important: close resp.Body after use
 		defer func() {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -390,9 +389,25 @@ func worker(
 			continue
 		}
 
-		// Always parse as HTML for SEO and assets
-		seo := getSeoFromHtml(html)
-		assets := extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
+		// Проверяем Content-Type - парсим только HTML
+		contentType := resp.Header.Get("Content-Type")
+		var seo SEO
+		var assets []Asset
+
+		if strings.Contains(contentType, "text/html") {
+			seo = getSeoFromHtml(html)
+			assets = extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
+		} else {
+			// Для не-HTML контента (XML, RSS, JSON, изображения и т.д.)
+			seo = SEO{
+				HasTitle:       false,
+				Title:          "",
+				HasDescription: false,
+				Description:    "",
+				HasH1:          false,
+			}
+			assets = []Asset{}
+		}
 
 		if job.Depth > 0 {
 			links := getLinksFromHtml(html, job.URL, opts)
@@ -402,7 +417,6 @@ func worker(
 					continue
 				}
 
-				// Skip adding root URL as a child page
 				if validatedLink == normalizedRoot {
 					continue
 				}
