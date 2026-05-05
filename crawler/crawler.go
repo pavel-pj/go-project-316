@@ -235,6 +235,9 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		// Sort assets by URL for consistent ordering
 		if len(page.Assets) > 1 {
 			sort.Slice(page.Assets, func(i, j int) bool {
+				if page.Assets[i].Type != page.Assets[j].Type {
+					return page.Assets[i].Type < page.Assets[j].Type
+				}
 				return page.Assets[i].URL < page.Assets[j].URL
 			})
 		}
@@ -380,8 +383,30 @@ func worker(
 			continue
 		}
 
-		seo := getSeoFromHtml(html)
-		assets := extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
+		// Check content type to determine if we should parse as HTML
+		contentType := resp.Header.Get("Content-Type")
+		isXML := strings.Contains(contentType, "application/xml") ||
+			strings.Contains(contentType, "text/xml") ||
+			strings.Contains(contentType, "application/rss+xml") ||
+			strings.Contains(contentType, "application/atom+xml")
+
+		var seo SEO
+		var assets []Asset
+
+		if isXML {
+			// For XML/RSS feeds, don't parse as HTML
+			seo = SEO{
+				HasTitle:       false,
+				Title:          "",
+				HasDescription: false,
+				Description:    "",
+				HasH1:          false,
+			}
+			assets = []Asset{}
+		} else {
+			seo = getSeoFromHtml(html)
+			assets = extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
+		}
 
 		if job.Depth > 0 {
 			links := getLinksFromHtml(html, job.URL, opts)
