@@ -42,10 +42,15 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	// Normalize root URL
 	normalizedRoot, _ := NormalizeURL(opts.URL, opts.URL)
 
+	// Clear visited map at start
+	visitedMu.Lock()
+	visited = make(map[string]struct{})
+	visitedMu.Unlock()
+
 	select {
 	case jobs <- Job{
-		URL:       normalizedRoot,
-		ParentURL: normalizedRoot,
+		URL:       opts.URL, // Use original URL, not normalized
+		ParentURL: opts.URL,
 		Depth:     int(opts.Depth),
 	}:
 		jobWg.Add(1)
@@ -65,19 +70,48 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	var pagesMap = make(map[string]*Page)
 	var brokenLinks []Link
+	rootAdded := false
 
 	for result := range results {
-		// Normalize URL before processing
-		normalizedURL, err := NormalizeURL(result.URL, opts.URL)
-		if err == nil {
-			result.URL = normalizedURL
-		}
+		// Normalize URL for comparison but keep original for URL field
+		normalizedURL, _ := NormalizeURL(result.URL, opts.URL)
 
-		// Collect broken links
-		if result.Error != nil {
+		// For root URL detection, compare normalized versions
+		isRoot := normalizedURL == normalizedRoot ||
+			strings.TrimSuffix(normalizedURL, "/") == strings.TrimSuffix(normalizedRoot, "/")
+
+		// Collect broken links (including 404s)
+		if result.Error != nil || (result.StatusCode != nil && *result.StatusCode >= 400) {
 			brokenLinks = append(brokenLinks, result)
-		} else if result.StatusCode != nil && *result.StatusCode >= 400 {
-			brokenLinks = append(brokenLinks, result)
+
+			// For missing.test: add the root page even if it returns 404
+			if isRoot && !rootAdded {
+				rootAdded = true
+				seo := SEO{
+					HasTitle:       false,
+					Title:          "",
+					HasDescription: false,
+					Description:    "",
+					HasH1:          false,
+				}
+
+				statusCode := 404
+				if result.StatusCode != nil {
+					statusCode = *result.StatusCode
+				}
+
+				pagesMap[normalizedRoot] = &Page{
+					URL:          opts.URL,
+					Depth:        0,
+					HttpStatus:   statusCode,
+					Status:       "error",
+					SEO:          seo,
+					Assets:       []Asset{},
+					BrokenLinks:  []BrokenLink{},
+					DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
+				}
+			}
+			continue
 		}
 
 		// Process successful pages (status code < 400)
@@ -105,7 +139,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 			// Calculate depth - root page is always depth 0
 			var pageDepth int
-			if result.URL == normalizedRoot || strings.TrimSuffix(result.URL, "/") == strings.TrimSuffix(normalizedRoot, "/") {
+			if isRoot {
 				pageDepth = 0
 			} else {
 				pageDepth = int(opts.Depth) - result.Depth
@@ -114,14 +148,28 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				}
 			}
 
-			// Ensure assets and broken links are initialized as empty slices
+			// Use normalized URL as map key to avoid duplicates
+			mapKey := normalizedURL
+			if mapKey == "" {
+				mapKey = result.URL
+			}
+
+			// If this is root and we already have it, skip adding duplicate
+			if isRoot && rootAdded {
+				continue
+			}
+
+			if isRoot {
+				rootAdded = true
+			}
+
 			assets := result.Assets
 			if assets == nil {
 				assets = []Asset{}
 			}
 
-			pagesMap[result.URL] = &Page{
-				URL:          result.URL,
+			pagesMap[mapKey] = &Page{
+				URL:          result.URL, // Use original URL (without trailing slash for root)
 				Depth:        pageDepth,
 				HttpStatus:   *result.StatusCode,
 				Status:       status,
@@ -138,7 +186,17 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		// Normalize parent URL
 		normalizedParent, _ := NormalizeURL(brokenLink.ParentURL, opts.URL)
 
-		if page, exists := pagesMap[normalizedParent]; exists {
+		// Also try without trailing slash
+		parentKey := strings.TrimSuffix(normalizedParent, "/")
+
+		var page *Page
+		var exists bool
+
+		if page, exists = pagesMap[normalizedParent]; !exists {
+			page, exists = pagesMap[parentKey]
+		}
+
+		if exists && page != nil {
 			// Check if link already exists
 			alreadyExists := false
 			for _, existing := range page.BrokenLinks {
@@ -174,13 +232,17 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			page.BrokenLinks = []BrokenLink{}
 		}
 
-		// Sort assets consistently: by type first, then by URL
+		// Sort assets by URL for consistent ordering
 		if len(page.Assets) > 1 {
 			sort.Slice(page.Assets, func(i, j int) bool {
-				if page.Assets[i].Type != page.Assets[j].Type {
-					return page.Assets[i].Type < page.Assets[j].Type
-				}
 				return page.Assets[i].URL < page.Assets[j].URL
+			})
+		}
+
+		// Sort broken links by URL
+		if len(page.BrokenLinks) > 1 {
+			sort.Slice(page.BrokenLinks, func(i, j int) bool {
+				return page.BrokenLinks[i].URL < page.BrokenLinks[j].URL
 			})
 		}
 
