@@ -389,25 +389,9 @@ func worker(
 			continue
 		}
 
-		// Проверяем Content-Type - парсим только HTML
-		contentType := resp.Header.Get("Content-Type")
-		var seo SEO
-		var assets []Asset
-
-		if strings.Contains(contentType, "text/html") {
-			seo = getSeoFromHtml(html)
-			assets = extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
-		} else {
-			// Для не-HTML контента (XML, RSS, JSON и т.д.)
-			seo = SEO{
-				HasTitle:       false,
-				Title:          "",
-				HasDescription: false,
-				Description:    "",
-				HasH1:          false,
-			}
-			assets = []Asset{}
-		}
+		// Всегда парсим как HTML
+		seo := getSeoFromHtml(html)
+		assets := extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
 
 		if job.Depth > 0 {
 			links := getLinksFromHtml(html, job.URL, opts)
