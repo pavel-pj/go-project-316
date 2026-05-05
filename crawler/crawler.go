@@ -389,8 +389,10 @@ func worker(
 			continue
 		}
 
-		// Всегда парсим как HTML
+		// Парсим SEO всегда - даже для XML/фидов, потому что тесты этого ожидают
 		seo := getSeoFromHtml(html)
+
+		// Ассеты извлекаем всегда
 		assets := extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
 
 		if job.Depth > 0 {
