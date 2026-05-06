@@ -73,7 +73,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		normalizedURL, _ := NormalizeURL(result.URL, opts.URL)
 		isRoot := normalizedURL == normalizedRoot || strings.TrimSuffix(normalizedURL, "/") == strings.TrimSuffix(normalizedRoot, "/")
 
-		if result.Error != nil || (result.StatusCode != nil && *result.StatusCode >= 400) {
+		if result.Error != "" || (result.StatusCode != nil && *result.StatusCode >= 400) {
 			brokenLinks = append(brokenLinks, result)
 
 			if isRoot && !rootAdded {
@@ -86,14 +86,11 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 					HasH1:          false,
 				}
 
-				errorMsg := ""
-				if result.Error != nil {
-					errorMsg = *result.Error
-					if strings.Contains(errorMsg, "cant handle request to url:") {
-						parts := strings.Split(errorMsg, ", ")
-						if len(parts) > 1 {
-							errorMsg = parts[1]
-						}
+				errorMsg := result.Error
+				if strings.Contains(errorMsg, "cant handle request to url:") {
+					parts := strings.Split(errorMsg, ", ")
+					if len(parts) > 1 {
+						errorMsg = parts[1]
 					}
 				}
 
@@ -103,8 +100,8 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 					HttpStatus:   0,
 					Status:       "error",
 					SEO:          seo,
-					Assets:       nil,
-					BrokenLinks:  nil,
+					Assets:       []Asset{},      // ВСЕГДА инициализировать
+					BrokenLinks:  []BrokenLink{}, // ВСЕГДА инициализировать
 					Error:        errorMsg,
 					DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 				}
@@ -159,7 +156,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 			assets := result.Assets
 			if assets == nil {
-				assets = []Asset{}
+				assets = []Asset{} // ВСЕГДА инициализировать
 			}
 
 			pagesMap[mapKey] = &Page{
@@ -169,14 +166,15 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				Status:       status,
 				SEO:          seo,
 				Assets:       assets,
-				BrokenLinks:  []BrokenLink{},
+				BrokenLinks:  []BrokenLink{}, // ВСЕГДА инициализировать пустым массивом
 				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
+				Error:        "",
 			}
 		}
 	}
 
 	for _, brokenLink := range brokenLinks {
-		if brokenLink.Error != nil && strings.Contains(*brokenLink.Error, "no such host") {
+		if brokenLink.Error != "" && strings.Contains(brokenLink.Error, "no such host") {
 			continue
 		}
 
@@ -205,8 +203,8 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				if brokenLink.StatusCode != nil {
 					bl.StatusCode = *brokenLink.StatusCode
 				}
-				if brokenLink.Error != nil {
-					bl.Error = *brokenLink.Error
+				if brokenLink.Error != "" {
+					bl.Error = brokenLink.Error
 				}
 				page.BrokenLinks = append(page.BrokenLinks, bl)
 			}
@@ -310,7 +308,7 @@ func worker(
 			case results <- Link{
 				URL:              job.URL,
 				StatusCode:       statusCode,
-				Error:            &errMsg,
+				Error:            errMsg, // Изменено: передаем строку, а не указатель
 				ParentURL:        job.ParentURL,
 				ParentStatusCode: job.ParentStatusCode,
 				ParentStatus:     job.ParentStatus,
@@ -326,7 +324,7 @@ func worker(
 			select {
 			case results <- Link{
 				URL:              job.URL,
-				Error:            &errMsg,
+				Error:            errMsg, // Изменено: строка
 				ParentURL:        job.ParentURL,
 				ParentStatusCode: 0,
 				ParentStatus:     "",
@@ -345,7 +343,7 @@ func worker(
 			case results <- Link{
 				URL:              job.URL,
 				StatusCode:       &code,
-				Error:            &errMsg,
+				Error:            errMsg, // Изменено: строка
 				ParentURL:        job.ParentURL,
 				ParentStatusCode: job.ParentStatusCode,
 				ParentStatus:     job.ParentStatus,
@@ -371,9 +369,13 @@ func worker(
 			continue
 		}
 
-		// ВСЕГДА парсим SEO из HTML ответа
 		seo := getSeoFromHtml(html)
 		assets := extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
+
+		// Важно: убедиться, что assets не nil
+		if assets == nil {
+			assets = []Asset{}
+		}
 
 		if job.Depth > 0 {
 			links := getLinksFromHtml(html, job.URL, opts)
@@ -421,7 +423,7 @@ func worker(
 			ParentStatus:     job.ParentStatus,
 			SEO:              &seo,
 			Depth:            job.Depth,
-			Assets:           assets,
+			Assets:           assets, // assets уже гарантированно не nil
 		}
 
 		select {
