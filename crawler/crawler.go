@@ -168,7 +168,6 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				Assets:       assets,
 				BrokenLinks:  []BrokenLink{}, // ВСЕГДА инициализировать пустым массивом
 				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
-				Error:        "",
 			}
 		}
 	}

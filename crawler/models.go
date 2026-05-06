@@ -37,7 +37,7 @@ type Page struct {
 	SEO          SEO          `json:"seo"`
 	Assets       []Asset      `json:"assets"`
 	DiscoveredAt string       `json:"discovered_at"`
-	Error        string       `json:"error"`
+	Error        string       `json:"error,omitempty"`
 }
 
 type Asset struct {
