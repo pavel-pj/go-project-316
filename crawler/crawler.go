@@ -100,8 +100,8 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 					HttpStatus:   0,
 					Status:       "error",
 					SEO:          seo,
-					Assets:       []Asset{},      // ВСЕГДА инициализировать
-					BrokenLinks:  []BrokenLink{}, // ВСЕГДА инициализировать
+					Assets:       nil, // <- nil, а не пустой массив
+					BrokenLinks:  nil, // <- nil, а не пустой массив
 					Error:        errorMsg,
 					DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 				}
@@ -156,7 +156,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 			assets := result.Assets
 			if assets == nil {
-				assets = []Asset{} // ВСЕГДА инициализировать
+				assets = []Asset{}
 			}
 
 			pagesMap[mapKey] = &Page{
@@ -166,7 +166,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				Status:       status,
 				SEO:          seo,
 				Assets:       assets,
-				BrokenLinks:  []BrokenLink{}, // ВСЕГДА инициализировать пустым массивом
+				BrokenLinks:  nil, // <- nil, инициализируем только когда будут broken links
 				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 			}
 		}
@@ -188,6 +188,11 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}
 
 		if exists && page != nil {
+			// Инициализируем BrokenLinks только когда есть что добавлять
+			if page.BrokenLinks == nil {
+				page.BrokenLinks = []BrokenLink{}
+			}
+
 			alreadyExists := false
 			for _, existing := range page.BrokenLinks {
 				if existing.URL == brokenLink.URL {
@@ -212,13 +217,12 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	var pages []Page
 	for _, page := range pagesMap {
+		// НЕ преобразуем nil в пустые массивы для страниц с ошибкой
 		if page.Status != "error" {
 			if page.Assets == nil {
 				page.Assets = []Asset{}
 			}
-			if page.BrokenLinks == nil {
-				page.BrokenLinks = []BrokenLink{}
-			}
+			// BrokenLinks оставляем как есть (может быть nil)
 		}
 
 		if len(page.Assets) > 1 {
@@ -307,7 +311,7 @@ func worker(
 			case results <- Link{
 				URL:              job.URL,
 				StatusCode:       statusCode,
-				Error:            errMsg, // Изменено: передаем строку, а не указатель
+				Error:            errMsg,
 				ParentURL:        job.ParentURL,
 				ParentStatusCode: job.ParentStatusCode,
 				ParentStatus:     job.ParentStatus,
@@ -323,7 +327,7 @@ func worker(
 			select {
 			case results <- Link{
 				URL:              job.URL,
-				Error:            errMsg, // Изменено: строка
+				Error:            errMsg,
 				ParentURL:        job.ParentURL,
 				ParentStatusCode: 0,
 				ParentStatus:     "",
@@ -342,7 +346,7 @@ func worker(
 			case results <- Link{
 				URL:              job.URL,
 				StatusCode:       &code,
-				Error:            errMsg, // Изменено: строка
+				Error:            errMsg,
 				ParentURL:        job.ParentURL,
 				ParentStatusCode: job.ParentStatusCode,
 				ParentStatus:     job.ParentStatus,
@@ -368,10 +372,27 @@ func worker(
 			continue
 		}
 
-		seo := getSeoFromHtml(html)
-		assets := extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
+		// ========== ПРОВЕРКА CONTENT-TYPE ==========
+		contentType := resp.Header.Get("Content-Type")
 
-		// Важно: убедиться, что assets не nil
+		var seo SEO
+		var assets []Asset
+
+		if strings.Contains(contentType, "text/html") {
+			seo = getSeoFromHtml(html)
+			assets = extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
+		} else {
+			// Для не-HTML (XML, CSS, JS и т.д.) - SEO пустое, ассетов нет
+			seo = SEO{
+				HasTitle:       false,
+				Title:          "",
+				HasDescription: false,
+				Description:    "",
+				HasH1:          false,
+			}
+			assets = []Asset{}
+		}
+
 		if assets == nil {
 			assets = []Asset{}
 		}
@@ -422,7 +443,7 @@ func worker(
 			ParentStatus:     job.ParentStatus,
 			SEO:              &seo,
 			Depth:            job.Depth,
-			Assets:           assets, // assets уже гарантированно не nil
+			Assets:           assets,
 		}
 
 		select {
