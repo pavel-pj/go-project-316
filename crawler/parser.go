@@ -257,6 +257,7 @@ func fetchAsset(ctx context.Context, assetURL string, opts Options, rng *rand.Ra
 					asset.SizeBytes = int64(len(body))
 				} else {
 					asset.Error = fmt.Sprintf("failed to read body: %v", err)
+					asset.SizeBytes = 0
 				}
 				resp.Body = io.NopCloser(strings.NewReader(string(body)))
 			}
