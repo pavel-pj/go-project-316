@@ -101,7 +101,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 					Status:       "error",
 					SEO:          seo,
 					Assets:       nil, // <- nil, а не пустой массив
-					BrokenLinks:  nil, // <- nil, а не пустой массив
+					BrokenLinks:  []BrokenLink{},
 					Error:        errorMsg,
 					DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 				}
@@ -166,7 +166,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				Status:       status,
 				SEO:          seo,
 				Assets:       assets,
-				BrokenLinks:  nil, // <- nil, инициализируем только когда будут broken links
+				BrokenLinks:  []BrokenLink{},
 				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 			}
 		}
@@ -222,7 +222,9 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			if page.Assets == nil {
 				page.Assets = []Asset{}
 			}
-			// BrokenLinks оставляем как есть (может быть nil)
+			if page.BrokenLinks == nil {
+				page.BrokenLinks = []BrokenLink{}
+			}
 		}
 
 		if len(page.Assets) > 1 {
