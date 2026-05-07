@@ -79,14 +79,10 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			//}
 
 			if !isRoot {
-				// Пропускаем /missing, оставляем только /about
-				//if strings.Contains(result.URL, "/missing") {
-				//	fmt.Printf("[FILTER] Skipping /missing, keeping only /about\n")
-				// НЕ добавляем в brokenLinks
-				//} else {
-				//	fmt.Printf("[FILTER] Adding to brokenLinks: %s\n", result.URL)
+				// ВРЕМЕННО: просто логируем все потенциальные broken links
+				fmt.Printf("[RAW] Potential broken link: URL=%s, Error=%v, StatusCode=%v, ParentURL=%s\n",
+					result.URL, result.Error, result.StatusCode, result.ParentURL)
 				brokenLinks = append(brokenLinks, result)
-				//}
 			}
 
 			if isRoot && !rootAdded {
@@ -291,33 +287,6 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	return jsonResult, nil
 }
 
-/*
-	func debugBrokenLinks(brokenLinks []Link, pagesMap map[string]*Page, normalizedRoot string) {
-		fmt.Println("\n=== DEBUG BROKEN LINKS ===")
-		fmt.Printf("Total brokenLinks count: %d\n", len(brokenLinks))
-
-		for i, bl := range brokenLinks {
-			fmt.Printf("[%d] URL: %s\n", i, bl.URL)
-			fmt.Printf("    ParentURL: %s\n", bl.ParentURL)
-			fmt.Printf("    Error: %s\n", bl.Error)
-			if bl.StatusCode != nil {
-				fmt.Printf("    StatusCode: %d\n", *bl.StatusCode)
-			}
-			fmt.Printf("    ---\n")
-		}
-
-		fmt.Println("\n=== BROKEN LINKS PER PAGE ===")
-		for url, page := range pagesMap {
-			if len(page.BrokenLinks) > 0 {
-				fmt.Printf("Page: %s\n", url)
-				for _, bl := range page.BrokenLinks {
-					fmt.Printf("  - %s (status: %d, error: %s)\n", bl.URL, bl.StatusCode, bl.Error)
-				}
-			}
-		}
-		fmt.Println("============================")
-	}
-*/
 func worker(
 	id int,
 	ctx context.Context,
@@ -350,6 +319,7 @@ func worker(
 
 		if errResp != nil {
 			errMsg := errResp.Error()
+			fmt.Printf("[WORKER ERROR] URL: %s, Error: %s\n", job.URL, errMsg)
 			var statusCode *int
 			if resp != nil {
 				code := resp.StatusCode
@@ -389,6 +359,7 @@ func worker(
 
 		if resp.StatusCode >= 400 {
 			errMsg := resp.Status
+			fmt.Printf("[WORKER HTTP ERROR] URL: %s, Status: %d\n", job.URL, resp.StatusCode)
 			code := resp.StatusCode
 
 			select {
