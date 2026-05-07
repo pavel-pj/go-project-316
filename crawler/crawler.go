@@ -74,7 +74,9 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		isRoot := normalizedURL == normalizedRoot || strings.TrimSuffix(normalizedURL, "/") == strings.TrimSuffix(normalizedRoot, "/")
 
 		if result.Error != "" || (result.StatusCode != nil && *result.StatusCode >= 400) {
-			brokenLinks = append(brokenLinks, result)
+			if !isRoot {
+				brokenLinks = append(brokenLinks, result)
+			}
 
 			if isRoot && !rootAdded {
 				rootAdded = true
@@ -172,31 +174,10 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}
 	}
 
-	processedBrokenURLs := make(map[string]bool)
-
 	for _, brokenLink := range brokenLinks {
-		// Skip if it's a DNS/connection error
 		if brokenLink.Error != "" && strings.Contains(brokenLink.Error, "no such host") {
 			continue
 		}
-
-		// Skip if this broken link IS the root page itself
-		normalizedBroken, _ := NormalizeURL(brokenLink.URL, opts.URL)
-		if normalizedBroken == normalizedRoot {
-			continue
-		}
-
-		// Skip if no parent or parent is the same as broken URL
-		if brokenLink.ParentURL == "" || brokenLink.ParentURL == brokenLink.URL {
-			continue
-		}
-
-		// Create a unique key for this broken link on this parent
-		uniqueKey := fmt.Sprintf("%s|%s", brokenLink.ParentURL, brokenLink.URL)
-		if processedBrokenURLs[uniqueKey] {
-			continue // Skip duplicates
-		}
-		processedBrokenURLs[uniqueKey] = true
 
 		normalizedParent, _ := NormalizeURL(brokenLink.ParentURL, opts.URL)
 		parentKey := strings.TrimSuffix(normalizedParent, "/")
@@ -213,7 +194,6 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				page.BrokenLinks = []BrokenLink{}
 			}
 
-			// Check for duplicates in the page's broken links
 			alreadyExists := false
 			for _, existing := range page.BrokenLinks {
 				if existing.URL == brokenLink.URL {
