@@ -101,7 +101,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 					Status:       "error",
 					SEO:          seo,
 					Assets:       nil, // <- nil, а не пустой массив
-					BrokenLinks:  []BrokenLink{},
+					BrokenLinks:  nil,
 					Error:        errorMsg,
 					DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 				}
