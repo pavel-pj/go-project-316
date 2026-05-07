@@ -80,13 +80,13 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 			if !isRoot {
 				// Пропускаем /missing, оставляем только /about
-				if strings.Contains(result.URL, "/missing") {
-					fmt.Printf("[FILTER] Skipping /missing, keeping only /about\n")
-					// НЕ добавляем в brokenLinks
-				} else {
-					fmt.Printf("[FILTER] Adding to brokenLinks: %s\n", result.URL)
-					brokenLinks = append(brokenLinks, result)
-				}
+				//if strings.Contains(result.URL, "/missing") {
+				//	fmt.Printf("[FILTER] Skipping /missing, keeping only /about\n")
+				// НЕ добавляем в brokenLinks
+				//} else {
+				//	fmt.Printf("[FILTER] Adding to brokenLinks: %s\n", result.URL)
+				brokenLinks = append(brokenLinks, result)
+				//}
 			}
 
 			if isRoot && !rootAdded {
