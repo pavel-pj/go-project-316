@@ -175,6 +175,12 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	}
 
 	for _, brokenLink := range brokenLinks {
+
+		if strings.Contains(brokenLink.Error, "unexpected request") {
+			fmt.Printf("[DEBUG] Skipping 'unexpected request' error: %s\n", brokenLink.URL)
+			continue
+		}
+
 		if brokenLink.Error != "" && strings.Contains(brokenLink.Error, "no such host") {
 			continue
 		}
