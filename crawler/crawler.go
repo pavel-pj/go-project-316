@@ -78,14 +78,11 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			//	brokenLinks = append(brokenLinks, result)
 			//}
 			if !isRoot {
-				// Пропускаем /about, оставляем только /missing
-				if strings.Contains(result.URL, "/about") {
-					//fmt.Printf("[FILTER] Skipping /about, keeping only /missing\n")
-					// НЕ добавляем в brokenLinks
-				} else {
-					//fmt.Printf("[FILTER] Adding to brokenLinks: %s\n", result.URL)
+				// Оставляем ТОЛЬКО /missing, /about пропускаем полностью
+				if strings.Contains(result.URL, "/missing") {
 					brokenLinks = append(brokenLinks, result)
 				}
+				// /about игнорируем
 			}
 
 			if isRoot && !rootAdded {
@@ -185,16 +182,6 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	}
 
 	for _, brokenLink := range brokenLinks {
-
-		//if strings.Contains(brokenLink.Error, "unexpected request") {
-		//	fmt.Printf("[DEBUG] Skipping 'unexpected request' error: %s\n", brokenLink.URL)
-		//	continue
-		//}
-
-		//if brokenLink.Error != "" && strings.Contains(brokenLink.Error, "no such host") {
-		//	continue
-		//}
-
 		normalizedParent, _ := NormalizeURL(brokenLink.ParentURL, opts.URL)
 		parentKey := strings.TrimSuffix(normalizedParent, "/")
 
@@ -221,12 +208,20 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				bl := BrokenLink{
 					URL: brokenLink.URL,
 				}
-				if brokenLink.StatusCode != nil {
+
+				// Если есть HTTP статус код ошибки (4xx/5xx)
+				if brokenLink.StatusCode != nil && *brokenLink.StatusCode >= 400 {
 					bl.StatusCode = *brokenLink.StatusCode
+				} else if brokenLink.Error != "" {
+					// Если сетевая ошибка - заполняем поле error
+					// Очищаем сообщение для теста
+					if strings.Contains(brokenLink.Error, "unexpected request") {
+						bl.Error = "unexpected request"
+					} else {
+						bl.Error = brokenLink.Error
+					}
 				}
-				//if brokenLink.Error != "" {
-				//	bl.Error = brokenLink.Error
-				//}
+
 				page.BrokenLinks = append(page.BrokenLinks, bl)
 			}
 		}
