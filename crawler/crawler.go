@@ -179,7 +179,11 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 		normalizedBroken, _ := NormalizeURL(brokenLink.URL, opts.URL)
 		if normalizedBroken == normalizedRoot {
-			continue // Don't add root page errors as broken links
+			continue
+		}
+
+		if brokenLink.ParentURL == "" || brokenLink.ParentURL == brokenLink.URL {
+			continue
 		}
 
 		normalizedParent, _ := NormalizeURL(brokenLink.ParentURL, opts.URL)
