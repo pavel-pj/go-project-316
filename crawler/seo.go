@@ -127,3 +127,34 @@ func NormalizeURL(href, baseURL string) (string, error) {
 
 	return resolved.String(), nil
 }
+
+func getSeoFromXml(xmlBody string) SEO {
+	seo := SEO{
+		HasTitle:       false,
+		Title:          "",
+		HasDescription: false,
+		Description:    "",
+		HasH1:          false,
+	}
+
+	// Simple string search for title tag
+	// Look for <title> or <title type="text"> etc.
+	titleStart := strings.Index(xmlBody, "<title")
+	if titleStart != -1 {
+		// Find the closing > of the opening tag
+		tagClose := strings.Index(xmlBody[titleStart:], ">")
+		if tagClose != -1 {
+			contentStart := titleStart + tagClose + 1
+			titleEnd := strings.Index(xmlBody[contentStart:], "</title>")
+			if titleEnd != -1 {
+				title := strings.TrimSpace(xmlBody[contentStart : contentStart+titleEnd])
+				if title != "" {
+					seo.HasTitle = true
+					seo.Title = title
+				}
+			}
+		}
+	}
+
+	return seo
+}

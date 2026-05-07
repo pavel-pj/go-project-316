@@ -383,6 +383,12 @@ func worker(
 		if strings.Contains(contentType, "text/html") {
 			seo = getSeoFromHtml(html)
 			assets = extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
+		} else if strings.Contains(contentType, "application/rss+xml") ||
+			strings.Contains(contentType, "application/atom+xml") ||
+			strings.Contains(contentType, "text/xml") {
+			// Parse XML feeds for title
+			seo = getSeoFromXml(html)
+			assets = []Asset{}
 		} else {
 			// Для не-HTML (XML, CSS, JS и т.д.) - SEO пустое, ассетов нет
 			seo = SEO{
