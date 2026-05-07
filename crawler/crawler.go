@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -229,7 +230,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}
 	}
 
-	//debugBrokenLinks(brokenLinks, pagesMap, normalizedRoot)
+	debugBrokenLinks(brokenLinks, pagesMap, normalizedRoot)
 
 	var pages []Page
 	for _, page := range pagesMap {
@@ -285,6 +286,89 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		return nil, fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 	return jsonResult, nil
+}
+
+func debugBrokenLinks(brokenLinks []Link, pagesMap map[string]*Page, normalizedRoot string) {
+	fmt.Println("\n=== DEBUG BROKEN LINKS ===")
+	fmt.Printf("Total brokenLinks count: %d\n", len(brokenLinks))
+
+	// Сохраняем в файл для анализа
+	f, err := os.Create("/tmp/broken_links_debug.txt")
+	if err != nil {
+		fmt.Printf("[WARN] Cannot create debug file: %v\n", err)
+	} else {
+		defer f.Close()
+		f.WriteString(fmt.Sprintf("=== BROKEN LINKS DEBUG ===\n"))
+		f.WriteString(fmt.Sprintf("Normalized Root: %s\n", normalizedRoot))
+		f.WriteString(fmt.Sprintf("Total count: %d\n\n", len(brokenLinks)))
+	}
+
+	for i, bl := range brokenLinks {
+		// Вывод в консоль
+		fmt.Printf("[%d] URL: %s\n", i, bl.URL)
+		fmt.Printf("    ParentURL: %s\n", bl.ParentURL)
+		fmt.Printf("    Error: %s\n", bl.Error)
+		if bl.StatusCode != nil {
+			fmt.Printf("    StatusCode: %d\n", *bl.StatusCode)
+		}
+		fmt.Printf("    Depth: %d\n", bl.Depth)
+		fmt.Printf("    ---\n")
+
+		// Запись в файл
+		if f != nil {
+			f.WriteString(fmt.Sprintf("Link %d:\n", i))
+			f.WriteString(fmt.Sprintf("  URL: %s\n", bl.URL))
+			f.WriteString(fmt.Sprintf("  ParentURL: %s\n", bl.ParentURL))
+			f.WriteString(fmt.Sprintf("  Error: %s\n", bl.Error))
+			if bl.StatusCode != nil {
+				f.WriteString(fmt.Sprintf("  StatusCode: %d\n", *bl.StatusCode))
+			}
+			f.WriteString(fmt.Sprintf("  Depth: %d\n", bl.Depth))
+			if bl.SEO != nil {
+				f.WriteString(fmt.Sprintf("  SEO Title: %s\n", bl.SEO.Title))
+			}
+			f.WriteString("\n")
+		}
+	}
+
+	// Анализируем pagesMap
+	fmt.Println("\n=== PAGES MAP ANALYSIS ===")
+	fmt.Printf("Total pages in map: %d\n", len(pagesMap))
+
+	if f != nil {
+		f.WriteString(fmt.Sprintf("\n=== PAGES MAP (%d pages) ===\n", len(pagesMap)))
+	}
+
+	for url, page := range pagesMap {
+		fmt.Printf("Page: %s\n", url)
+		fmt.Printf("  Status: %s, HTTP: %d, Depth: %d\n", page.Status, page.HttpStatus, page.Depth)
+		fmt.Printf("  BrokenLinks count: %d\n", len(page.BrokenLinks))
+
+		if f != nil {
+			f.WriteString(fmt.Sprintf("\nPage: %s\n", url))
+			f.WriteString(fmt.Sprintf("  Status: %s\n", page.Status))
+			f.WriteString(fmt.Sprintf("  HTTP Status: %d\n", page.HttpStatus))
+			f.WriteString(fmt.Sprintf("  Depth: %d\n", page.Depth))
+			f.WriteString(fmt.Sprintf("  BrokenLinks count: %d\n", len(page.BrokenLinks)))
+		}
+
+		for _, bl := range page.BrokenLinks {
+			fmt.Printf("    - %s (status: %d, error: %s)\n", bl.URL, bl.StatusCode, bl.Error)
+			if f != nil {
+				f.WriteString(fmt.Sprintf("    Broken: %s (status: %d)\n", bl.URL, bl.StatusCode))
+			}
+		}
+	}
+
+	// Дополнительная статистика
+	fmt.Println("\n=== STATISTICS ===")
+	var totalBrokenInPages int
+	for _, page := range pagesMap {
+		totalBrokenInPages += len(page.BrokenLinks)
+	}
+	fmt.Printf("Total broken links in all pages: %d\n", totalBrokenInPages)
+	fmt.Printf("Original brokenLinks slice length: %d\n", len(brokenLinks))
+	fmt.Println("============================")
 }
 
 func worker(
