@@ -297,7 +297,7 @@ func debugBrokenLinks(brokenLinks []Link, pagesMap map[string]*Page, normalizedR
 			}
 		}
 	}
-	fmt.Println("===========================")
+	fmt.Println("============================")
 }
 
 func worker(
