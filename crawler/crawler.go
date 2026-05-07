@@ -177,6 +177,11 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			continue
 		}
 
+		normalizedBroken, _ := NormalizeURL(brokenLink.URL, opts.URL)
+		if normalizedBroken == normalizedRoot {
+			continue // Don't add root page errors as broken links
+		}
+
 		normalizedParent, _ := NormalizeURL(brokenLink.ParentURL, opts.URL)
 		parentKey := strings.TrimSuffix(normalizedParent, "/")
 
@@ -380,16 +385,17 @@ func worker(
 		var seo SEO
 		var assets []Asset
 
-		if strings.Contains(contentType, "text/html") {
+		switch {
+		case strings.Contains(contentType, "text/html"):
 			seo = getSeoFromHtml(html)
 			assets = extractAssetsFromHtml(html, job.URL, opts, ctx, rng, id)
-		} else if strings.Contains(contentType, "application/rss+xml") ||
-			strings.Contains(contentType, "application/atom+xml") ||
-			strings.Contains(contentType, "text/xml") {
+		case strings.Contains(contentType, "application/rss+xml"),
+			strings.Contains(contentType, "application/atom+xml"),
+			strings.Contains(contentType, "text/xml"):
 			// Parse XML feeds for title
 			seo = getSeoFromXml(html)
 			assets = []Asset{}
-		} else {
+		default:
 			// Для не-HTML (XML, CSS, JS и т.д.) - SEO пустое, ассетов нет
 			seo = SEO{
 				HasTitle:       false,
