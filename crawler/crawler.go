@@ -216,6 +216,8 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}
 	}
 
+	debugBrokenLinks(brokenLinks, pagesMap, normalizedRoot)
+
 	var pages []Page
 	for _, page := range pagesMap {
 		// НЕ преобразуем nil в пустые массивы для страниц с ошибкой
@@ -270,6 +272,32 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		return nil, fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 	return jsonResult, nil
+}
+
+func debugBrokenLinks(brokenLinks []Link, pagesMap map[string]*Page, normalizedRoot string) {
+	fmt.Println("\n=== DEBUG BROKEN LINKS ===")
+	fmt.Printf("Total brokenLinks count: %d\n", len(brokenLinks))
+
+	for i, bl := range brokenLinks {
+		fmt.Printf("[%d] URL: %s\n", i, bl.URL)
+		fmt.Printf("    ParentURL: %s\n", bl.ParentURL)
+		fmt.Printf("    Error: %s\n", bl.Error)
+		if bl.StatusCode != nil {
+			fmt.Printf("    StatusCode: %d\n", *bl.StatusCode)
+		}
+		fmt.Printf("    ---\n")
+	}
+
+	fmt.Println("\n=== BROKEN LINKS PER PAGE ===")
+	for url, page := range pagesMap {
+		if len(page.BrokenLinks) > 0 {
+			fmt.Printf("Page: %s\n", url)
+			for _, bl := range page.BrokenLinks {
+				fmt.Printf("  - %s (status: %d, error: %s)\n", bl.URL, bl.StatusCode, bl.Error)
+			}
+		}
+	}
+	fmt.Println("===========================\n")
 }
 
 func worker(
