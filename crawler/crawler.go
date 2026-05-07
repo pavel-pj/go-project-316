@@ -206,7 +206,8 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			}
 			if !alreadyExists {
 				bl := BrokenLink{
-					URL: brokenLink.URL,
+					URL:        brokenLink.URL,
+					StatusCode: 404,
 				}
 
 				// Если есть HTTP статус код ошибки (4xx/5xx)
