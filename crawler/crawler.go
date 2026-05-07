@@ -74,8 +74,19 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		isRoot := normalizedURL == normalizedRoot || strings.TrimSuffix(normalizedURL, "/") == strings.TrimSuffix(normalizedRoot, "/")
 
 		if result.Error != "" || (result.StatusCode != nil && *result.StatusCode >= 400) {
+			//if !isRoot {
+			//	brokenLinks = append(brokenLinks, result)
+			//}
+
 			if !isRoot {
-				brokenLinks = append(brokenLinks, result)
+				// Пропускаем /about, оставляем только /missing
+				if strings.Contains(result.URL, "/about") {
+					fmt.Printf("[FILTER] Skipping /about, keeping only /missing\n")
+					// НЕ добавляем в brokenLinks
+				} else {
+					fmt.Printf("[FILTER] Adding to brokenLinks: %s\n", result.URL)
+					brokenLinks = append(brokenLinks, result)
+				}
 			}
 
 			if isRoot && !rootAdded {
