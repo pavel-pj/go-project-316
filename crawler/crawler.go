@@ -80,10 +80,10 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			if !isRoot {
 				// Пропускаем /about, оставляем только /missing
 				if strings.Contains(result.URL, "/about") {
-					fmt.Printf("[FILTER] Skipping /about, keeping only /missing\n")
+					//fmt.Printf("[FILTER] Skipping /about, keeping only /missing\n")
 					// НЕ добавляем в brokenLinks
 				} else {
-					fmt.Printf("[FILTER] Adding to brokenLinks: %s\n", result.URL)
+					//fmt.Printf("[FILTER] Adding to brokenLinks: %s\n", result.URL)
 					brokenLinks = append(brokenLinks, result)
 				}
 			}
@@ -224,9 +224,9 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				if brokenLink.StatusCode != nil {
 					bl.StatusCode = *brokenLink.StatusCode
 				}
-				if brokenLink.Error != "" {
-					bl.Error = brokenLink.Error
-				}
+				//if brokenLink.Error != "" {
+				//	bl.Error = brokenLink.Error
+				//}
 				page.BrokenLinks = append(page.BrokenLinks, bl)
 			}
 		}
@@ -406,7 +406,7 @@ func worker(
 
 		if errResp != nil {
 			errMsg := errResp.Error()
-			fmt.Printf("[WORKER ERROR] URL: %s, Error: %s\n", job.URL, errMsg)
+			//fmt.Printf("[WORKER ERROR] URL: %s, Error: %s\n", job.URL, errMsg)
 			var statusCode *int
 			if resp != nil {
 				code := resp.StatusCode
@@ -446,7 +446,7 @@ func worker(
 
 		if resp.StatusCode >= 400 {
 			errMsg := resp.Status
-			fmt.Printf("[WORKER HTTP ERROR] URL: %s, Status: %d\n", job.URL, resp.StatusCode)
+			//fmt.Printf("[WORKER HTTP ERROR] URL: %s, Status: %d\n", job.URL, resp.StatusCode)
 			code := resp.StatusCode
 
 			select {
