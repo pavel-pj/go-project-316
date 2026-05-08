@@ -137,11 +137,10 @@ func getSeoFromXml(xmlBody string) SEO {
 		HasH1:          false,
 	}
 
-	// Simple string search for title tag
-	// Look for <title> or <title type="text"> etc.
+	// ищет <title> или <title type="text">
 	titleStart := strings.Index(xmlBody, "<title")
 	if titleStart != -1 {
-		// Find the closing > of the opening tag
+
 		tagClose := strings.Index(xmlBody[titleStart:], ">")
 		if tagClose != -1 {
 			contentStart := titleStart + tagClose + 1

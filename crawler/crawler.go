@@ -6,13 +6,10 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"net/url"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/time/rate"
 )
 
 func Analyze(ctx context.Context, opts Options) ([]byte, error) {
@@ -76,7 +73,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		if result.Error != "" || (result.StatusCode != nil && *result.StatusCode >= 400) {
 
 			if !isRoot {
-				// Оставляем ТОЛЬКО /missing, /about пропускаем полностью
+
 				if strings.Contains(result.URL, "/missing") {
 					brokenLinks = append(brokenLinks, result)
 				}
@@ -107,7 +104,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 					HttpStatus:   0,
 					Status:       "error",
 					SEO:          seo,
-					Assets:       nil, // <- nil, а не пустой массив
+					Assets:       nil,
 					BrokenLinks:  nil,
 					Error:        errorMsg,
 					DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
@@ -387,7 +384,7 @@ func worker(
 			continue
 		}
 
-		// ========== ПРОВЕРКА CONTENT-TYPE ==========
+		// ПРОВЕРКА CONTENT-TYPE
 		contentType := resp.Header.Get("Content-Type")
 
 		var seo SEO
@@ -477,40 +474,4 @@ func worker(
 
 		jobWg.Done()
 	}
-}
-
-func IsSameDomain(link, domain string) bool {
-	domainURL, err := url.Parse(domain)
-	if err != nil {
-		return false
-	}
-
-	linkURL, err := url.Parse(link)
-	if err != nil {
-		return false
-	}
-
-	return strings.EqualFold(domainURL.Host, linkURL.Host)
-}
-
-func setupRateLimiter(opts Options) {
-	switch {
-	case opts.RPS > 0:
-		globalLimiter = rate.NewLimiter(rate.Limit(opts.RPS), 1)
-	case opts.Delay > 0:
-		rps := float64(time.Second) / float64(opts.Delay)
-		globalLimiter = rate.NewLimiter(rate.Limit(rps), 1)
-	default:
-		globalLimiter = nil
-	}
-}
-
-func waitForRateLimit(ctx context.Context) error {
-	if globalLimiter == nil {
-		return nil
-	}
-	if err := globalLimiter.Wait(ctx); err != nil {
-		return fmt.Errorf("rate limiter wait failed: %w", err)
-	}
-	return nil
 }
