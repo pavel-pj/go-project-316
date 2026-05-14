@@ -98,8 +98,8 @@ func (rc *ResultCollector) handleErrorResult(result Link, normalizedURL string, 
 			HttpStatus:   0,
 			Status:       "error",
 			SEO:          rc.parser.emptySEO(),
-			Assets:       []Asset{},
-			BrokenLinks:  []BrokenLink{},
+			Assets:       nil,
+			BrokenLinks:  nil,
 			Error:        rc.cleanErrorMessage(result.Error),
 			DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 		}
@@ -161,12 +161,22 @@ func (rc *ResultCollector) calculateDepth(isRoot bool, resultDepth int) int {
 }
 
 func (rc *ResultCollector) cleanErrorMessage(errMsg string) string {
-	if strings.Contains(errMsg, "cant handle request to url:") {
-		parts := strings.Split(errMsg, ", ")
+	// Убираем префикс "cant handle request: "
+	if strings.Contains(errMsg, "cant handle request:") {
+		parts := strings.SplitN(errMsg, ", ", 2)
 		if len(parts) > 1 {
 			return parts[1]
 		}
 	}
+
+	// Убираем "Get \"http://...\": " если есть
+	if strings.Contains(errMsg, "Get \"") {
+		parts := strings.SplitN(errMsg, ": ", 2)
+		if len(parts) > 1 {
+			return parts[1]
+		}
+	}
+
 	return errMsg
 }
 

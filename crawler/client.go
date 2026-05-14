@@ -120,6 +120,7 @@ func (c *HTTPClient) Fetch(ctx context.Context, url string, isAsset bool) (*Inte
 	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
+// doRequest - исправленный формат ошибки
 func (c *HTTPClient) doRequest(ctx context.Context, url string) (string, *http.Response, string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -130,7 +131,8 @@ func (c *HTTPClient) doRequest(ctx context.Context, url string) (string, *http.R
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return "", nil, "", fmt.Errorf("cant handle request: %s, %w", url, err)
+		// ТОЧНО ТАКОЙ ЖЕ ФОРМАТ, КАК В СТАРОМ КОДЕ
+		return "", nil, "", fmt.Errorf("cant handle request to url:%s, %w", url, err)
 	}
 
 	status := ""

@@ -96,11 +96,14 @@ func (wp *WorkerPool) worker(ctx context.Context, id int) {
 }
 
 func (wp *WorkerPool) handleError(job Job, resp *InternalResponse, err error) {
-	errMsg := "unknown error"
+	errMsg := ""
+
 	if err != nil {
 		errMsg = err.Error()
-	} else if resp != nil {
+	} else if resp != nil && resp.StatusCode >= 400 {
 		errMsg = resp.Status
+	} else {
+		errMsg = "unknown error"
 	}
 
 	var statusCode *int
