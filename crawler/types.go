@@ -8,6 +8,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// Options конфигурация краулера
 type Options struct {
 	URL         string
 	Depth       int32
@@ -21,6 +22,7 @@ type Options struct {
 	IndentJSON  bool
 }
 
+// Report отчет о структуре сайта
 type Report struct {
 	RootURL     string `json:"root_url"`
 	Depth       int32  `json:"depth"`
@@ -28,6 +30,7 @@ type Report struct {
 	Pages       []Page `json:"pages"`
 }
 
+// Page информация о странице
 type Page struct {
 	URL          string       `json:"url"`
 	Depth        int          `json:"depth"`
@@ -40,6 +43,7 @@ type Page struct {
 	Error        string       `json:"error,omitempty"`
 }
 
+// Asset веб-ресурс
 type Asset struct {
 	URL        string `json:"url"`
 	Type       string `json:"type"`
@@ -48,12 +52,14 @@ type Asset struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// BrokenLink битая ссылка
 type BrokenLink struct {
 	URL        string `json:"url"`
 	StatusCode int    `json:"status_code,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
 
+// Link ссылка в процессе обработки
 type Link struct {
 	URL              string  `json:"url"`
 	StatusCode       *int    `json:"status_code,omitempty"`
@@ -66,6 +72,7 @@ type Link struct {
 	Assets           []Asset `json:"assets,omitempty"`
 }
 
+// SEO метаданные
 type SEO struct {
 	HasTitle       bool   `json:"has_title"`
 	Title          string `json:"title"`
@@ -74,14 +81,7 @@ type SEO struct {
 	HasH1          bool   `json:"has_h1"`
 }
 
-var (
-	visited       = make(map[string]struct{})
-	visitedMu     sync.RWMutex
-	globalLimiter *rate.Limiter
-	assetsCache   = make(map[string]Asset)
-	assetsCacheMu sync.RWMutex
-)
-
+// Job задача для воркера
 type Job struct {
 	URL              string
 	ParentURL        string
@@ -89,3 +89,29 @@ type Job struct {
 	ParentStatus     string
 	Depth            int
 }
+
+// InternalResponse внутренний ответ HTTP
+type InternalResponse struct {
+	Body       string
+	StatusCode int
+	Status     string
+	Header     http.Header
+}
+
+// Константы
+const (
+	DefaultWorkers     = 4
+	JobQueueSize       = 200
+	ResultQueueSize    = 200
+	MaxRetriesForAsset = 2
+	MaxRetryDelay      = 30 * time.Second
+)
+
+// Глобальные переменные
+var (
+	globalLimiter *rate.Limiter
+	visited       = make(map[string]struct{})
+	visitedMu     sync.RWMutex
+	assetsCache   = make(map[string]Asset)
+	assetsCacheMu sync.RWMutex
+)
