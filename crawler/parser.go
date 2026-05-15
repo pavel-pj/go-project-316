@@ -59,7 +59,7 @@ func doRequest(ctx context.Context, link string, opts Options, rng *rand.Rand, w
 			req.Header.Set("Referer", referer)
 		}
 	}
-	fmt.Println(link)
+
 	resp, err := opts.HTTPClient.Do(req)
 	if err != nil {
 		return "", nil, "", fmt.Errorf("cant handle request to url:%s, %w", link, err)
