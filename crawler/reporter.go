@@ -1,6 +1,8 @@
 package crawler
 
 import (
+	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -205,6 +207,25 @@ func (r *Reporter) BuildFinalReport() Report {
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Pages:       pages,
 	}
+}
+
+func (r *Reporter) BuildFinalJSON() ([]byte, error) {
+	report := r.BuildFinalReport()
+
+	var jsonResult []byte
+	var err error
+
+	if r.opts.IndentJSON {
+		jsonResult, err = json.MarshalIndent(report, "", "  ")
+	} else {
+		jsonResult, err = json.Marshal(report)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	return jsonResult, nil
 }
 
 func (r *Reporter) attachBrokenLinksToPages() {

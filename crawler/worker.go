@@ -14,30 +14,22 @@ func worker(
 	ctx context.Context,
 	jobs chan Job,
 	results chan<- Link,
-	jobWg *sync.WaitGroup,
+	wg *sync.WaitGroup,
 	opts Options,
 ) {
-
 	rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(id)))
 	normalizedRoot, _ := NormalizeURL(opts.URL, opts.URL)
 
 	for job := range jobs {
 		if job.Depth < 0 {
-			jobWg.Done()
 			continue
 		}
 
 		if err := waitForRateLimit(ctx); err != nil {
-			jobWg.Done()
 			continue
 		}
 
 		html, resp, respStatus, errResp := fetchWithRetry(ctx, job.URL, opts, rng, id, false)
-		defer func() {
-			if resp != nil && resp.Body != nil {
-				_ = resp.Body.Close()
-			}
-		}()
 
 		if errResp != nil {
 			errMsg := errResp.Error()
@@ -59,29 +51,25 @@ func worker(
 			}:
 			case <-ctx.Done():
 			}
-			jobWg.Done()
 			continue
 		}
 
 		if resp == nil {
-			errMsg := "response is nil"
 			select {
 			case results <- Link{
 				URL:              job.URL,
-				Error:            errMsg,
+				Error:            "response is nil",
 				ParentURL:        job.ParentURL,
 				ParentStatusCode: 0,
 				ParentStatus:     "",
 			}:
 			case <-ctx.Done():
 			}
-			jobWg.Done()
 			continue
 		}
 
 		if resp.StatusCode >= 400 {
 			errMsg := resp.Status
-
 			code := resp.StatusCode
 
 			select {
@@ -95,7 +83,6 @@ func worker(
 			}:
 			case <-ctx.Done():
 			}
-			jobWg.Done()
 			continue
 		}
 
@@ -104,17 +91,13 @@ func worker(
 			if err == nil {
 				html = string(body)
 			}
-			if err := resp.Body.Close(); err != nil {
-				_ = err
-			}
+			resp.Body.Close()
 		}
 
 		if !IsSameDomain(job.URL, opts.URL) {
-			jobWg.Done()
 			continue
 		}
 
-		// ПРОВЕРКА CONTENT-TYPE
 		contentType := resp.Header.Get("Content-Type")
 
 		var seo SEO
@@ -127,11 +110,9 @@ func worker(
 		case strings.Contains(contentType, "application/rss+xml"),
 			strings.Contains(contentType, "application/atom+xml"),
 			strings.Contains(contentType, "text/xml"):
-			// Parse XML feeds for title
 			seo = getSeoFromXml(html)
 			assets = []Asset{}
 		default:
-			// Для не-HTML (XML, CSS, JS и т.д.) - SEO пустое, ассетов нет
 			seo = SEO{
 				HasTitle:       false,
 				Title:          "",
@@ -164,19 +145,20 @@ func worker(
 						visited[validatedLink] = struct{}{}
 						visitedMu.Unlock()
 
-						jobWg.Add(1)
-						select {
-						case jobs <- Job{
-							URL:              validatedLink,
-							ParentURL:        job.URL,
-							ParentStatusCode: resp.StatusCode,
-							ParentStatus:     respStatus,
-							Depth:            job.Depth - 1,
-						}:
-						case <-ctx.Done():
-							jobWg.Done()
-							return
-						}
+						wg.Add(1)
+						go func(linkURL, parentURL string, parentCode int, parentStatus string, depth int) {
+							defer wg.Done()
+							select {
+							case jobs <- Job{
+								URL:              linkURL,
+								ParentURL:        parentURL,
+								ParentStatusCode: parentCode,
+								ParentStatus:     parentStatus,
+								Depth:            depth,
+							}:
+							case <-ctx.Done():
+							}
+						}(validatedLink, job.URL, resp.StatusCode, respStatus, job.Depth-1)
 					} else {
 						visitedMu.Unlock()
 					}
@@ -198,10 +180,9 @@ func worker(
 		select {
 		case results <- resultLink:
 		case <-ctx.Done():
-			jobWg.Done()
 			return
 		}
 
-		jobWg.Done()
+		wg.Done()
 	}
 }
