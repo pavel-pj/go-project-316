@@ -56,6 +56,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		wg.Wait()
 		close(results)
 	}()
+
 	reporter := NewReporter(opts, normalizedRoot)
 	reporter.ProcessResults(results)
 
