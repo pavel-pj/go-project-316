@@ -24,12 +24,15 @@ var userAgents = []string{
 	"Mozilla/5.0 (iPad; CPU OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
 }
 
-// getRandomUserAgent возвращает случайный User-Agent
+// getRandomUserAgent - возвращает случайный User-Agent из предопределенного списка
+// для имитации различных браузеров.
 func getRandomUserAgent() string {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return userAgents[rng.Intn(len(userAgents))]
 }
 
+// doRequest - выполняет HTTP-запрос с подменой User-Agent, IP-адреса
+// и других заголовков для обхода блокировок.
 func doRequest(ctx context.Context, link string, opts Options, rng *rand.Rand, workerID int) (string, *http.Response, string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", link, nil)
 	if err != nil {
@@ -74,6 +77,8 @@ func doRequest(ctx context.Context, link string, opts Options, rng *rand.Rand, w
 	return "", resp, parentStatus, nil
 }
 
+// fetchWithRetry - выполняет HTTP-запрос с автоматическими повторными попытками
+// при временных ошибках или определенных статус-кодах.
 func fetchWithRetry(ctx context.Context, link string, opts Options, rng *rand.Rand, workerID int, isAsset bool) (string, *http.Response, string, error) {
 	var lastResp *http.Response
 	var lastErr error
@@ -146,7 +151,7 @@ func fetchWithRetry(ctx context.Context, link string, opts Options, rng *rand.Ra
 	return lastBody, lastResp, lastStatus, lastErr
 }
 
-// getRandomIP возвращает случайный IP адрес
+// getRandomIP - генерирует случайный IP-адрес для подстановки в заголовок X-Forwarded-For.
 //
 //nolint:gosec
 func getRandomIP() string {
@@ -159,6 +164,8 @@ func getRandomIP() string {
 		rand.Intn(255)) //nolint:gosec
 }
 
+// getAssetType - определяет тип ассета (image, script, style, other)
+// на основе расширения файла или Content-Type.
 func getAssetType(urlStr string, contentType string) string {
 	if contentType != "" {
 		contentType = strings.ToLower(contentType)
@@ -188,6 +195,8 @@ func getAssetType(urlStr string, contentType string) string {
 	}
 }
 
+// fetchAsset - загружает ассет (изображение, скрипт, стиль) с кэшированием
+// и возвращает информацию о нем.
 func fetchAsset(ctx context.Context, assetURL string, opts Options, rng *rand.Rand, workerID int) Asset {
 	// Проверяем кэш
 	assetsCacheMu.RLock()
@@ -271,6 +280,8 @@ func fetchAsset(ctx context.Context, assetURL string, opts Options, rng *rand.Ra
 	return asset
 }
 
+// extractAssetsFromHtml - извлекает из HTML-документа все ассеты (изображения, скрипты, стили)
+// и возвращает их с информацией о статусе и размере.
 func extractAssetsFromHtml(htmlBody string, baseURL string, opts Options, ctx context.Context, rng *rand.Rand, workerID int) []Asset {
 	doc, err := html.Parse(strings.NewReader(htmlBody))
 	if err != nil {
@@ -335,6 +346,9 @@ func extractAssetsFromHtml(htmlBody string, baseURL string, opts Options, ctx co
 	findAssets(doc)
 	return assets
 }
+
+// isNewLink - проверяет, не был ли URL уже обработан ранее,
+// используя глобальный кэш посещенных ссылок.
 func isNewLink(link string) bool {
 	visitedMu.RLock()
 	_, ok := visited[link]
@@ -342,6 +356,8 @@ func isNewLink(link string) bool {
 	return !ok
 }
 
+// getLinksFromHtml - извлекает из HTML-документа все ссылки из тегов a,
+// нормализует их и возвращает в виде списка строк.
 func getLinksFromHtml(htmlBody string, baseURL string, opts Options) []string {
 	doc, err := html.Parse(strings.NewReader(htmlBody))
 	if err != nil {

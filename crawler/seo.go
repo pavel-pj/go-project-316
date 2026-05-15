@@ -9,6 +9,8 @@ import (
 	"golang.org/x/net/html"
 )
 
+// getSeoFromHtml - извлекает SEO-информацию (title, description, h1)
+// из HTML-документа.
 func getSeoFromHtml(htmlBody string) SEO {
 	doc, err := html.Parse(strings.NewReader(htmlBody))
 	if err != nil {
@@ -78,6 +80,8 @@ func getSeoFromHtml(htmlBody string) SEO {
 	return seo
 }
 
+// extractText - рекурсивно извлекает текстовое содержимое из HTML-узла,
+// декодируя HTML-сущности.
 func extractText(n *html.Node) string {
 	if n.Type == html.TextNode {
 		decoded := html.UnescapeString(n.Data)
@@ -91,6 +95,8 @@ func extractText(n *html.Node) string {
 	return strings.TrimSpace(text.String())
 }
 
+// NormalizeURL - нормализует URL-адрес: разрешает относительные пути,
+// проверяет схему (http/https) и возвращает абсолютный URL.
 func NormalizeURL(href, baseURL string) (string, error) {
 	if strings.HasPrefix(href, "#") {
 		return "", errors.New("skip anchor")
@@ -128,6 +134,8 @@ func NormalizeURL(href, baseURL string) (string, error) {
 	return resolved.String(), nil
 }
 
+// getSeoFromXml - извлекает заголовок (title) из XML/RSS/Atom документа
+// для последующего использования в SEO-отчете.
 func getSeoFromXml(xmlBody string) SEO {
 	seo := SEO{
 		HasTitle:       false,

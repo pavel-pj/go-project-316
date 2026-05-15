@@ -18,6 +18,7 @@ type Reporter struct {
 	opts           Options
 }
 
+// NewReporter - создает новый экземпляр Reporter для сбора и обработки результатов обхода.
 func NewReporter(opts Options, normalizedRoot string) *Reporter {
 	return &Reporter{
 		pagesMap:       make(map[string]*Page),
@@ -28,6 +29,7 @@ func NewReporter(opts Options, normalizedRoot string) *Reporter {
 	}
 }
 
+// ProcessResults - читает результаты из канала и обрабатывает их асинхронно.
 func (r *Reporter) ProcessResults(results <-chan Link) {
 	for result := range results {
 		r.mu.Lock()
@@ -36,6 +38,8 @@ func (r *Reporter) ProcessResults(results <-chan Link) {
 	}
 }
 
+// processSingleResult - обрабатывает один результат (успешный или с ошибкой)
+// и обновляет внутренние структуры репортера.
 func (r *Reporter) processSingleResult(result Link) {
 	normalizedURL, _ := NormalizeURL(result.URL, r.opts.URL)
 	isRoot := normalizedURL == r.normalizedRoot || strings.TrimSuffix(normalizedURL, "/") == strings.TrimSuffix(r.normalizedRoot, "/")
@@ -52,6 +56,8 @@ func (r *Reporter) processSingleResult(result Link) {
 	}
 }
 
+// handleErrorResult - обрабатывает результат с ошибкой,
+// создает запись о битой ссылке или странице с ошибкой.
 func (r *Reporter) handleErrorResult(result Link, normalizedURL string, isRoot bool) {
 	if !isRoot {
 		// Для не-корневых страниц собираем битые ссылки
@@ -94,6 +100,8 @@ func (r *Reporter) handleErrorResult(result Link, normalizedURL string, isRoot b
 	}
 }
 
+// handleSuccessResult - обрабатывает успешный результат (статус 2xx, 3xx),
+// создает или обновляет запись о странице.
 func (r *Reporter) handleSuccessResult(result Link, normalizedURL string, isRoot bool) {
 	status := strings.ToLower(result.ParentStatus)
 	if status == "" {
@@ -156,6 +164,8 @@ func (r *Reporter) handleSuccessResult(result Link, normalizedURL string, isRoot
 	}
 }
 
+// BuildFinalReport - собирает финальный отчет из всех собранных данных,
+// сортирует страницы, ассеты и битые ссылки.
 func (r *Reporter) BuildFinalReport() Report {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -209,6 +219,8 @@ func (r *Reporter) BuildFinalReport() Report {
 	}
 }
 
+// BuildFinalJSON - преобразует финальный отчет в JSON,
+// с отступами или без в зависимости от опции IndentJSON.
 func (r *Reporter) BuildFinalJSON() ([]byte, error) {
 	report := r.BuildFinalReport()
 
@@ -228,6 +240,8 @@ func (r *Reporter) BuildFinalJSON() ([]byte, error) {
 	return jsonResult, nil
 }
 
+// attachBrokenLinksToPages - привязывает собранные битые ссылки
+// к соответствующим родительским страницам.
 func (r *Reporter) attachBrokenLinksToPages() {
 	for _, brokenLink := range r.brokenLinks {
 		normalizedParent, _ := NormalizeURL(brokenLink.ParentURL, r.opts.URL)

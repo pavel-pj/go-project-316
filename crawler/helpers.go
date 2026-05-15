@@ -10,6 +10,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// IsSameDomain - проверяет, принадлежат ли два URL одному домену.
 func IsSameDomain(link, domain string) bool {
 	domainURL, err := url.Parse(domain)
 	if err != nil {
@@ -24,6 +25,8 @@ func IsSameDomain(link, domain string) bool {
 	return strings.EqualFold(domainURL.Host, linkURL.Host)
 }
 
+// setupRateLimiter - настраивает глобальный ограничитель скорости запросов
+// на основе параметров RPS или Delay.
 func setupRateLimiter(opts Options) {
 	switch {
 	case opts.RPS > 0:
@@ -36,6 +39,8 @@ func setupRateLimiter(opts Options) {
 	}
 }
 
+// waitForRateLimit - ожидает разрешения от глобального ограничителя скорости
+// перед выполнением следующего запроса.
 func waitForRateLimit(ctx context.Context) error {
 	if globalLimiter == nil {
 		return nil

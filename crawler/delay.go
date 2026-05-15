@@ -8,7 +8,8 @@ import (
 	"time"
 )
 
-// isRetriableError определяет, можно ли повторить запрос
+// isRetriableError - определяет, можно ли повторить HTTP-запрос при ошибке
+// или определенном статус-коде ответа.
 func isRetriableError(err error, resp *http.Response) bool {
 	if err != nil {
 		errStr := err.Error()
@@ -55,6 +56,8 @@ func isRetriableError(err error, resp *http.Response) bool {
 	return false
 }
 
+// getRetryDelay - вычисляет время задержки перед повторной попыткой запроса
+// с экспоненциальной задержкой и случайным джиттером.
 func getRetryDelay(attempt int, resp *http.Response) time.Duration {
 	if resp != nil {
 		if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
