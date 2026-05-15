@@ -106,24 +106,29 @@ func TestJSONOutputFormat(t *testing.T) {
 			break
 		}
 	}
-
+	// nolint:staticcheck
 	if homePage == nil {
 		t.Fatalf("Home page not found in results")
 	}
 
 	// Проверяем SEO
+	// nolint:staticcheck
 	if !homePage.SEO.HasTitle {
 		t.Error("HasTitle = false, want true")
 	}
+	// nolint:staticcheck
 	if homePage.SEO.Title != "Example title" {
 		t.Errorf("Title = %s, want Example title", homePage.SEO.Title)
 	}
+	// nolint:staticcheck
 	if !homePage.SEO.HasDescription {
 		t.Error("HasDescription = false, want true")
 	}
+	// nolint:staticcheck
 	if homePage.SEO.Description != "Example description" {
 		t.Errorf("Description = %s, want Example description", homePage.SEO.Description)
 	}
+	// nolint:staticcheck
 	if !homePage.SEO.HasH1 {
 		t.Error("HasH1 = false, want true")
 	}

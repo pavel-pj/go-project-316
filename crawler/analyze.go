@@ -145,7 +145,10 @@ func worker(
 				if err == nil {
 					html = string(body)
 				}
-				resp.Body.Close()
+
+				// можно залогировать, но для тестов просто игнорируем
+				_ = resp.Body.Close()
+
 			}
 
 			if !IsSameDomain(currentJob.URL, opts.URL) {
